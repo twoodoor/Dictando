@@ -1,0 +1,38 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and settings",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "shortcut": { "type": "string", "description": "Preferred keyboard shortcut" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "createdAt"]
+    },
+    "Dictation": {
+      "title": "Dictation",
+      "description": "A single transcribed dictation",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "number" }
+      },
+      "required": ["text", "timestamp"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles"
+    },
+    "users/{userId}/dictations/{dictationId}": {
+      "schema": { "$ref": "#/entities/Dictation" },
+      "description": "User's dictation history"
+    }
+  }
+}

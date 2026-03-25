@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (matches auth.uid)
+    // Fields:
+    //   - email: string (required) - User's email
+    //   - displayName: string (optional) - User's name
+    //   - photoURL: string (optional) - User's profile photo
+    //   - shortcut: string (optional) - User's preferred shortcut
+    //   - createdAt: timestamp (required, immutable) - Account creation time
+    //
+    // Collection: users/{userId}/dictations
+    // Document ID: auto-generated
+    // Fields:
+    //   - text: string (required) - Transcribed text
+    //   - timestamp: timestamp (required, immutable) - Time of dictation
+    //   - durationMs: number (optional) - Duration of audio in ms
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    function isValidOptionalNumber(field, min, max) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is number &&
+              request.resource.data[field] >= min &&
+              request.resource.data[field] <= max);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // Domain Validators
+    function isValidUser() {
+      return hasRequiredFields(['email', 'createdAt']) &&
+             isValidEmail(request.resource.data.email) &&
+             request.resource.data.createdAt is timestamp &&
+             isValidOptionalString('displayName', 1, 100) &&
+             isValidOptionalString('photoURL', 1, 1000) &&
+             isValidOptionalString('shortcut', 1, 50);
+    }
+
+    function isValidDictation() {
+      return hasRequiredFields(['text', 'timestamp']) &&
+             request.resource.data.text is string &&
+             request.resource.data.text.size() <= 10000 &&
+             request.resource.data.timestamp is timestamp &&
+             isValidOptionalNumber('durationMs', 0, 3600000); // Max 1 hour
+    }
+
+    // Rules
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser();
+      allow update: if isOwner(userId) && isValidUser() && areImmutableFieldsUnchanged(['createdAt', 'email']);
+      allow delete: if isOwner(userId);
+
+      match /dictations/{dictationId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) && isValidDictation();
+        allow update: if isOwner(userId) && isValidDictation() && areImmutableFieldsUnchanged(['timestamp']);
+        allow delete: if isOwner(userId);
+      }
+    }
+  }
+}
