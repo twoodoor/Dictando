@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+windows_app/build*/
+windows_app/dist*/
+windows_app/*.spec
+.agent/
+.firebase/

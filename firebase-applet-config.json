@@ -1,10 +1,9 @@
 {
-  "projectId": "gen-lang-client-0546768828",
-  "appId": "1:322333442521:web:29ca8ff204c93728ba19c8",
-  "apiKey": "AIzaSyA9nbRwB-vnLYLMyVsLSS6_wFnrm-AITY4",
-  "authDomain": "gen-lang-client-0546768828.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-309e1937-ba96-4ec4-b262-a24b541883c7",
-  "storageBucket": "gen-lang-client-0546768828.firebasestorage.app",
-  "messagingSenderId": "322333442521",
-  "measurementId": ""
+  "projectId": "dictando-be471",
+  "appId": "1:987257492661:web:2baf785d2dd41ab702dafc",
+  "apiKey": "AIzaSyDyXf7O9HbkFeyQDgtYS7R2iRo5WUmLRWQ",
+  "authDomain": "dictando-be471.firebaseapp.com",
+  "storageBucket": "dictando-be471.firebasestorage.app",
+  "messagingSenderId": "987257492661",
+  "measurementId": "G-T9WH5F276P"
 }
