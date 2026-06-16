@@ -428,6 +428,17 @@ pub fn run() {
             std::fs::create_dir_all(&app_data_dir).ok();
 
             let settings = SettingsStore::load(app_data_dir.join("settings.json"));
+
+            // If the saved active model isn't loadable by this target's engine
+            // (e.g. a Parakeet/ONNX id on Intel macOS), fall back to the default.
+            if models::catalog_entry(&settings.get().active_model_id).map(|e| e.format)
+                != Some(models::engine_format())
+            {
+                let _ = settings.update(
+                    serde_json::json!({ "activeModelId": settings::default_model_id() }),
+                );
+            }
+
             let snapshot = settings.get();
             let history = History::open(&app_data_dir.join("history.db"))
                 .expect("open history database");

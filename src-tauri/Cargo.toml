@@ -25,9 +25,9 @@ tauri = { version = "2.11.2", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
 
-# Transcription engine (Parakeet/Whisper/Moonshine). ONNX feature covers the
-# Parakeet TDT v3 default; whisper-cpp added later for the Whisper family.
-transcribe-rs = { version = "0.3", features = ["onnx"] }
+# Transcription engine — see per-target sections below. ONNX (Parakeet) ships
+# no Intel-macOS prebuilt, so Intel macOS uses whisper.cpp (compiles from source)
+# instead; every other target keeps Parakeet/ONNX.
 
 # Audio capture, text injection, clipboard, and global shortcuts.
 cpal = "0.15"
@@ -48,3 +48,13 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # shortcut + keystroke injection).
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"
+
+# Transcription engine, chosen per target:
+# - Intel macOS (x86_64): whisper.cpp (compiles from source; ONNX has no x86_64
+#   macOS prebuilt binary).
+[target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
+transcribe-rs = { version = "0.3", features = ["whisper-cpp"] }
+
+# - Everything else (Windows, Apple-Silicon macOS, Linux): Parakeet via ONNX.
+[target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
+transcribe-rs = { version = "0.3", features = ["onnx"] }

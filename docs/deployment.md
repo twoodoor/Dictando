@@ -5,12 +5,19 @@ to sign them for distribution.
 
 ## Artifacts
 
-| OS | Targets | Output (under `src-tauri/target/release/bundle/`) |
-|---|---|---|
-| Windows | NSIS `.exe`, WiX `.msi` | `nsis/Dictando_<ver>_x64-setup.exe`, `msi/Dictando_<ver>_x64_en-US.msi` |
-| macOS | `.app`, `.dmg` | `macos/Dictando.app`, `dmg/Dictando_<ver>_<arch>.dmg` |
+| OS | Targets | Engine | Output (under `src-tauri/target/release/bundle/`) |
+|---|---|---|---|
+| Windows | NSIS `.exe`, WiX `.msi` | Parakeet (ONNX) | `nsis/Dictando_<ver>_x64-setup.exe`, `msi/Dictando_<ver>_x64_en-US.msi` |
+| macOS — Apple Silicon | `.app`, `.dmg` | Parakeet (ONNX) | `dmg/Dictando_<ver>_aarch64.dmg` |
+| macOS — Intel | `.app`, `.dmg` | **Whisper (whisper.cpp)** | `dmg/Dictando_<ver>_x64.dmg` |
 
 `bundle.targets` is `"all"`, so each OS produces its applicable installers.
+
+> **Engine per target:** ONNX Runtime ships no Intel-macOS prebuilt, so Intel
+> macOS (`x86_64`) is compiled with the **Whisper/whisper.cpp** engine (builds
+> from source) and defaults to a Whisper GGML model; every other target uses
+> **Parakeet/ONNX**. Selection is per-target in `Cargo.toml` + `transcription.rs`.
+> whisper.cpp needs **cmake** on the build machine (CI runners have it).
 
 ## Local builds
 

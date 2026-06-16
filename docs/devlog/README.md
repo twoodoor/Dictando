@@ -14,6 +14,7 @@ Running record of significant changes, decisions, and their rationale during the
 - [2026-06-16 — Phase 3b + 4: tray, autostart, overlay HUD, AI enhancement](./2026-06-16-phase3b-4-tray-overlay-ai.md)
 - [2026-06-16 — Phase 5: deployment — installers for Windows & macOS](./2026-06-16-phase5-deployment.md)
 - [2026-06-16 — macOS first-run UX: microphone + Accessibility](./2026-06-16-macos-first-run-ux.md)
+- [2026-06-17 — Intel macOS support via hybrid engine (Parakeet / Whisper)](./2026-06-17-intel-mac-hybrid-engine.md)
 
 ---
 

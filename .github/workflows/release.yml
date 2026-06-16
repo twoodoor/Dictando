@@ -21,12 +21,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple Silicon (M1–M4). Intel macOS is skipped because the ONNX
-          # Runtime crate ships no prebuilt x86_64-apple-darwin binary; add it
-          # back via an ort source build if Intel support is needed.
+          # Apple Silicon (M1–M4): Parakeet/ONNX engine.
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             rust-targets: 'aarch64-apple-darwin'
+          # Intel macOS: Whisper/whisper.cpp engine (ONNX has no x86_64-darwin
+          # prebuilt). Cross-built from the Apple-Silicon runner.
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust-targets: 'x86_64-apple-darwin'
           - platform: windows-latest
             args: ''
             rust-targets: ''

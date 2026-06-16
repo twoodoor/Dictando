@@ -40,13 +40,23 @@ pub struct AppSettings {
     pub gemini_api_key: String,
 }
 
+/// Default active model for this target. Intel macOS runs the Whisper engine
+/// (Parakeet/ONNX has no Intel-mac build), so it defaults to a GGML model.
+pub fn default_model_id() -> String {
+    if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        "whisper-small".into()
+    } else {
+        "parakeet-tdt-0.6b-v3".into()
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             shortcut: vec!["ControlLeft".into(), "Space".into()],
             push_to_talk: true,
             language: "Auto-detect".into(),
-            active_model_id: "parakeet-tdt-0.6b-v3".into(),
+            active_model_id: default_model_id(),
             microphone_id: "default".into(),
             mute_while_recording: false,
             audio_feedback: false,
