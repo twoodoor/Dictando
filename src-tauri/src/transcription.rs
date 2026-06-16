@@ -12,13 +12,21 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
-// --- Parakeet (ONNX) on all targets except Intel macOS ---
+// --- ONNX engines (all targets except Intel macOS) ---
+// Dispatched through the unified `SpeechModel` trait, so several engines share
+// one transcribe path; only construction differs per model id.
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-use transcribe_rs::onnx::parakeet::{ParakeetModel, ParakeetParams};
+use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+use transcribe_rs::onnx::parakeet::ParakeetModel;
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+use transcribe_rs::onnx::sense_voice::SenseVoiceModel;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 use transcribe_rs::onnx::Quantization;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-type Engine = ParakeetModel;
+use transcribe_rs::{SpeechModel, TranscribeOptions};
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+type Engine = Box<dyn SpeechModel + Send>;
 
 // --- Whisper (whisper.cpp) on Intel macOS ---
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -45,19 +53,31 @@ pub fn is_hallucination(text: &str) -> bool {
 // --- Engine-specific load + transcribe (the only parts that differ) ---
 
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-fn load_engine(model_dir: &Path) -> Result<Engine, String> {
-    ParakeetModel::load(model_dir, &Quantization::Int8).map_err(|e| e.to_string())
+fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
+    let model: Engine = if model_id.starts_with("parakeet") {
+        Box::new(ParakeetModel::load(model_dir, &Quantization::Int8).map_err(|e| e.to_string())?)
+    } else if model_id.starts_with("moonshine") {
+        Box::new(
+            MoonshineModel::load(model_dir, MoonshineVariant::Base, &Quantization::default())
+                .map_err(|e| e.to_string())?,
+        )
+    } else if model_id.starts_with("sense-voice") {
+        Box::new(SenseVoiceModel::load(model_dir, &Quantization::Int8).map_err(|e| e.to_string())?)
+    } else {
+        return Err(format!("model '{model_id}' is not supported by this build"));
+    };
+    Ok(model)
 }
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 fn run_transcribe(model: &mut Engine, samples: &[f32]) -> Result<String, String> {
     model
-        .transcribe_with(samples, &ParakeetParams::default())
+        .transcribe(samples, &TranscribeOptions::default())
         .map(|r| r.text)
         .map_err(|e| e.to_string())
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-fn load_engine(model_dir: &Path) -> Result<Engine, String> {
+fn load_engine(_model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     // Whisper loads a single GGML .bin from inside the model directory.
     let bin = std::fs::read_dir(model_dir)
         .map_err(|e| e.to_string())?
@@ -110,7 +130,7 @@ impl Transcriber {
             return Err(format!("model '{model_id}' is not installed at {}", model_dir.display()));
         }
         log::info!("Loading model '{model_id}' from {}", model_dir.display());
-        let model = load_engine(&model_dir).map_err(|e| format!("failed to load '{model_id}': {e}"))?;
+        let model = load_engine(model_id, &model_dir).map_err(|e| format!("failed to load '{model_id}': {e}"))?;
         *guard = Some(Loaded { model, model_id: model_id.to_string(), last_used: Instant::now() });
         Ok(())
     }
