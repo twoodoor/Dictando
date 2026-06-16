@@ -21,10 +21,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Apple Silicon + Intel in one universal binary.
+          # Apple Silicon (M1–M4). Intel macOS is skipped because the ONNX
+          # Runtime crate ships no prebuilt x86_64-apple-darwin binary; add it
+          # back via an ort source build if Intel support is needed.
           - platform: macos-latest
-            args: '--target universal-apple-darwin'
-            rust-targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+            args: '--target aarch64-apple-darwin'
+            rust-targets: 'aarch64-apple-darwin'
           - platform: windows-latest
             args: ''
             rust-targets: ''
