@@ -1,18 +1,23 @@
 {
-  "name": "react-example",
+  "name": "dictando",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:tauri": "vite --port=1420 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
+    "clean": "rimraf dist",
     "lint": "tsc --noEmit",
-    "start": "node server.js"
+    "start": "node server.js",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
+    "@tauri-apps/api": "^2.11.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
@@ -26,6 +31,8 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.11.2",
+    "rimraf": "^6.0.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",

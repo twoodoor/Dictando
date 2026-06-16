@@ -1,20 +1,90 @@
 @import "tailwindcss";
 
-/* Dark scrollbar styling */
+/* Class-based dark mode: toggled by adding `.dark` on <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Design tokens — warm neutrals + violet accent. Light is the default; the
+   `.dark` class swaps the same semantic variables so components never hardcode
+   a theme. Edit colors here, once.
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #faf9f7;          /* app background (warm off-white) */
+  --surface: #ffffff;     /* cards / panels */
+  --surface-2: #f3f1ed;   /* hover / inset */
+  --line: #e8e4dd;        /* borders */
+  --fg: #1b1a17;          /* primary text */
+  --muted: #6f6a63;       /* secondary text */
+  --faint: #a39d94;       /* tertiary text */
+  --accent: #7c3aed;      /* violet-600 */
+  --accent-strong: #6d28d9;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(124, 58, 237, 0.10);
+  --danger: #ef4444;
+  --ok: #10b981;
+  --scrollbar: #d6d1c8;
+}
+
+.dark {
+  --bg: #0e0d10;
+  --surface: #17161a;
+  --surface-2: #201e25;
+  --line: #2a2830;
+  --fg: #ecebf0;
+  --muted: #9a95a2;
+  --faint: #6c6873;
+  --accent: #8b5cf6;      /* violet-500 (brighter for dark) */
+  --accent-strong: #7c3aed;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(139, 92, 246, 0.16);
+  --danger: #f87171;
+  --ok: #34d399;
+  --scrollbar: #3a3742;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    background-color: var(--bg);
+    color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  /* Semantic surface/text/border helpers (variant-able: hover:, etc.) */
+  .bg-app        { background-color: var(--bg); }
+  .bg-surface    { background-color: var(--surface); }
+  .bg-surface-2  { background-color: var(--surface-2); }
+  .bg-accent     { background-color: var(--accent); }
+  .bg-accent-strong { background-color: var(--accent-strong); }
+  .bg-accent-soft { background-color: var(--accent-soft); }
+  .text-fg       { color: var(--fg); }
+  .text-muted    { color: var(--muted); }
+  .text-faint    { color: var(--faint); }
+  .text-accent   { color: var(--accent); }
+  .text-accent-fg { color: var(--accent-fg); }
+  .border-line   { border-color: var(--line); }
+  .border-accent { border-color: var(--accent); }
+  .ring-accent   { --tw-ring-color: var(--accent); }
+
+  /* Editorial display face for hero / section headings. */
+  .font-display {
+    font-family: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+    font-feature-settings: "liga" 1, "kern" 1;
+  }
+
+  /* Title-bar drag region (paired with data-tauri-drag-region). */
+  .titlebar-drag { -webkit-app-region: drag; app-region: drag; }
+  .titlebar-no-drag { -webkit-app-region: no-drag; app-region: no-drag; }
+}
+
+/* Theme-aware scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #3f3f46 transparent;
+  scrollbar-color: var(--scrollbar) transparent;
 }
-*::-webkit-scrollbar {
-  width: 6px;
-}
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-*::-webkit-scrollbar-thumb {
-  background-color: #3f3f46;
-  border-radius: 3px;
-}
-*::-webkit-scrollbar-thumb:hover {
-  background-color: #52525b;
-}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background-color: var(--scrollbar); border-radius: 4px; }
