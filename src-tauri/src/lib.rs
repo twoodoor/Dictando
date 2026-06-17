@@ -147,6 +147,7 @@ fn finish_recording(app: AppHandle) {
                 return;
             }
         };
+        log::info!("captured {} samples (~{:.1}s)", samples.len(), samples.len() as f32 / 16_000.0);
         set_recording_state(&app, "transcribing");
 
         let model_dir = models::model_dir(&state.app_data_dir, &cfg.active_model_id);
@@ -170,6 +171,7 @@ fn finish_recording(app: AppHandle) {
                 } else {
                     raw
                 };
+                log::info!("injecting {} chars via '{}'", text.len(), cfg.paste_method);
                 if let Err(e) = inject::inject_text(
                     &text,
                     &cfg.paste_method,
@@ -178,6 +180,7 @@ fn finish_recording(app: AppHandle) {
                 ) {
                     log::error!("inject failed: {e}");
                 }
+                log::info!("inject complete");
                 let entry = HistoryEntry {
                     id: unique_id(),
                     text: text.clone(),
@@ -416,13 +419,13 @@ pub fn run() {
             None,
         ))
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Logging is always on (writes to the OS log dir) so release builds
+            // are diagnosable. macOS log: ~/Library/Logs/com.dictando.app/.
+            app.handle().plugin(
+                tauri_plugin_log::Builder::default()
+                    .level(log::LevelFilter::Info)
+                    .build(),
+            )?;
 
             let app_data_dir = app.path().app_data_dir().expect("resolve app data dir");
             std::fs::create_dir_all(&app_data_dir).ok();
