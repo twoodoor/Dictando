@@ -26,12 +26,11 @@ jobs:
             args: '--target aarch64-apple-darwin'
             rust-targets: 'aarch64-apple-darwin'
           # Intel macOS: Whisper/whisper.cpp engine (ONNX has no x86_64-darwin
-          # prebuilt). Built NATIVELY on an Intel runner so whisper.cpp gets
-          # proper x86 SIMD (AVX2/FMA) — cross-building from arm64 produced a
-          # slow/hanging binary.
-          - platform: macos-13
-            args: ''
-            rust-targets: ''
+          # prebuilt). Cross-built from the Apple-Silicon runner — the native
+          # macos-13 Intel runner queue is unreliable (jobs sit queued for 30m+).
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust-targets: 'x86_64-apple-darwin'
           - platform: windows-latest
             args: ''
             rust-targets: ''
