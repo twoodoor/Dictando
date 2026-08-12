@@ -43,7 +43,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU0QjY2MDFBMEEyRUVEREYKUldUZjdTNEtHbUMyVkFEbHJld0RtVjFBMVJhdURZWFpVUUFpUUxocTBERStHb2JycmZSWjFvRG0K",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY2NzI3QjMyMDg0MTMxODcKUldTSE1VRUlNbnR5OWhMeXZPcVkxTHozRmdLdm1OQ2RBZWFaUm9oRXdyT0JVcWVWMmwwSkgvS2kK",
       "endpoints": [
         "https://github.com/twoodoor/Dictando/releases/latest/download/latest.json"
       ]
