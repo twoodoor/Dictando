@@ -11,3 +11,5 @@ windows_app/dist*/
 windows_app/*.spec
 .agent/
 .firebase/
+%USERPROFILE%/
+*.key

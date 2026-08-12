@@ -32,6 +32,8 @@ export type PasteMethod = 'direct' | 'clipboard';
 export type ClipboardHandling = 'preserve' | 'overwrite';
 export type OverlayPosition = 'top' | 'bottom' | 'none';
 
+export type AiStylePreset = 'clean' | 'polished' | 'concise' | 'casual';
+
 export interface AppSettings {
   /** Global shortcut as KeyboardEvent.code values, e.g. ["ControlLeft","Space"]. */
   shortcut: string[];
@@ -56,6 +58,11 @@ export interface AppSettings {
   // AI enhancement layer (Phase 4) — off by default keeps transcription offline.
   aiEnhanceEnabled: boolean;
   geminiApiKey: string;
+  aiFixPunctuation: boolean;
+  aiRemoveFillers: boolean;
+  aiRemoveRepetitions: boolean;
+  aiStylePreset: AiStylePreset;
+  aiCustomInstructions: string;
 }
 
 export interface TranscriptionResult {
@@ -169,13 +176,49 @@ export const backend = {
 // Event subscriptions (each maps to an app.emit in the Rust backend)
 // ---------------------------------------------------------------------------
 
+export interface PartialTranscription {
+  text: string;
+  isFinal: boolean;
+}
+
 export const events = {
   onRecordingState: (h: (state: RecordingState) => void) =>
     listen<RecordingState>('recording-state', h),
   onTranscription: (h: (r: TranscriptionResult) => void) =>
     listen<TranscriptionResult>('transcription', h),
+  onPartialTranscription: (h: (p: PartialTranscription) => void) =>
+    listen<PartialTranscription>('transcription-partial', h),
   onModelStatus: (h: (s: BackendStatus) => void) =>
     listen<BackendStatus>('model-status', h),
   onDownloadProgress: (h: (p: DownloadProgress) => void) =>
     listen<DownloadProgress>('download-progress', h),
 };
+
+export interface AppUpdateInfo {
+  version: string;
+  body?: string;
+  date?: string;
+  downloadAndInstall: () => Promise<void>;
+}
+
+export async function checkForAppUpdates(): Promise<AppUpdateInfo | null> {
+  if (!isNative) return null;
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater');
+    const update = await check();
+    if (!update) return null;
+    return {
+      version: update.version,
+      body: update.body || undefined,
+      date: update.date || undefined,
+      downloadAndInstall: async () => {
+        await update.downloadAndInstall();
+        const { relaunch } = await import('@tauri-apps/plugin-process');
+        await relaunch();
+      },
+    };
+  } catch (err) {
+    console.warn('Update check failed:', err);
+    throw err;
+  }
+}

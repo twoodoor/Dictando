@@ -5,7 +5,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { LogOut, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
-import { isNative, backend } from '../lib/bridge';
+import { isNative, backend, checkForAppUpdates, AppUpdateInfo } from '../lib/bridge';
 
 const LANGUAGES = [
   'Auto-detect', 'English', 'Spanish', 'French', 'German', 'Italian',
@@ -62,15 +62,53 @@ export function SettingsView({ user }: { user: User | null }) {
   const [microphoneId, setMicrophoneId] = useState('default');
   const [pasteMethod, setPasteMethod] = useState('direct');
   const [appendSpace, setAppendSpace] = useState(false);
+  const [audioFeedback, setAudioFeedback] = useState(false);
   const [unloadMinutes, setUnloadMinutes] = useState(5);
   const [historyLimit, setHistoryLimit] = useState(50);
   const [apiKey, setApiKey] = useState('');
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
   const [aiEnhance, setAiEnhance] = useState(false);
   const [geminiKey, setGeminiKey] = useState('');
+  const [aiFixPunctuation, setAiFixPunctuation] = useState(true);
+  const [aiRemoveFillers, setAiRemoveFillers] = useState(true);
+  const [aiRemoveRepetitions, setAiRemoveRepetitions] = useState(true);
+  const [aiStylePreset, setAiStylePreset] = useState<'clean' | 'polished' | 'concise' | 'casual'>('clean');
+  const [aiCustomInstructions, setAiCustomInstructions] = useState('');
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [pressed, setPressed] = useState<string[]>([]);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true);
+    try {
+      const update = await checkForAppUpdates();
+      setUpdateInfo(update);
+      if (!update) {
+        toast.success('Mumblr is up to date (v0.2.0)');
+      } else {
+        toast.info(`Version ${update.version} is available!`);
+      }
+    } catch (e) {
+      toast.error('Could not check for updates');
+    } finally {
+      setCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!updateInfo) return;
+    setInstallingUpdate(true);
+    try {
+      toast.info('Downloading and installing update…');
+      await updateInfo.downloadAndInstall();
+    } catch (e) {
+      toast.error('Failed to install update');
+      setInstallingUpdate(false);
+    }
+  };
 
   // Load settings.
   useEffect(() => {
@@ -82,11 +120,17 @@ export function SettingsView({ user }: { user: User | null }) {
         setMicrophoneId(s.microphoneId || 'default');
         setPasteMethod(s.pasteMethod || 'direct');
         setAppendSpace(!!s.appendTrailingSpace);
+        setAudioFeedback(!!s.audioFeedback);
         setUnloadMinutes(s.unloadModelMinutes ?? 5);
         setHistoryLimit(s.historyLimit ?? 50);
         setLaunchOnStartup(!!s.launchOnStartup);
         setAiEnhance(!!s.aiEnhanceEnabled);
         setGeminiKey(s.geminiApiKey || '');
+        setAiFixPunctuation(s.aiFixPunctuation ?? true);
+        setAiRemoveFillers(s.aiRemoveFillers ?? true);
+        setAiRemoveRepetitions(s.aiRemoveRepetitions ?? true);
+        setAiStylePreset((s.aiStylePreset as any) || 'clean');
+        setAiCustomInstructions(s.aiCustomInstructions || '');
       }).catch(() => {});
       return;
     }
@@ -190,6 +234,11 @@ export function SettingsView({ user }: { user: User | null }) {
               {mics.filter((d) => d.id !== 'default').map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
             </select>
           </Row>
+          {isNative && (
+            <Row title="Sound cues" desc="Discreet water-drop chime when recording starts and stops">
+              <Toggle checked={audioFeedback} onChange={(v) => { setAudioFeedback(v); save('audioFeedback', v); }} />
+            </Row>
+          )}
         </Section>
 
         {isNative && (
@@ -225,16 +274,35 @@ export function SettingsView({ user }: { user: User | null }) {
         )}
 
         {isNative && (
-          <Section title="App">
-            <Row title="Launch on startup" desc="Start Dictando when you log in">
+          <Section title="App & updates">
+            <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
+            </Row>
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : 'Mumblr v0.2.0'}>
+              {updateInfo ? (
+                <button
+                  disabled={installingUpdate}
+                  onClick={handleInstallUpdate}
+                  className="px-3 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-strong transition-colors disabled:opacity-50"
+                >
+                  {installingUpdate ? 'Installing…' : `Install v${updateInfo.version}`}
+                </button>
+              ) : (
+                <button
+                  disabled={checkingUpdate}
+                  onClick={handleCheckUpdate}
+                  className="px-3 py-1.5 bg-surface-2 text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
+                >
+                  {checkingUpdate ? 'Checking…' : 'Check for updates'}
+                </button>
+              )}
             </Row>
           </Section>
         )}
 
         {isNative && (
           <Section title="AI enhancement">
-            <Row title="Clean up with AI" desc="Fix punctuation & remove fillers via Gemini (off = fully offline)">
+            <Row title="Clean up with AI" desc="Format, clean up, and polish raw transcription via Gemini (off = fully offline)">
               <Toggle checked={aiEnhance} onChange={(v) => { setAiEnhance(v); save('aiEnhanceEnabled', v); }} />
             </Row>
             <div className="px-4 py-3.5">
@@ -246,11 +314,66 @@ export function SettingsView({ user }: { user: User | null }) {
                   className="flex-1 bg-surface-2 border border-line text-fg text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
                 />
                 <button
-                  onClick={() => { save('geminiApiKey', geminiKey); toast.success('Saved'); }}
+                  onClick={() => { save('geminiApiKey', geminiKey); toast.success('Saved API key'); }}
                   className="px-4 bg-accent text-accent-fg text-sm font-medium rounded-lg hover:bg-accent-strong transition-colors"
                 >Save</button>
               </div>
             </div>
+
+            {aiEnhance && (
+              <>
+                <Row title="Fix punctuation & formatting" desc="Auto-correct capitalization, punctuation, and sentence boundaries">
+                  <Toggle checked={aiFixPunctuation} onChange={(v) => { setAiFixPunctuation(v); save('aiFixPunctuation', v); }} />
+                </Row>
+                <Row title="Remove filler words" desc="Filter out verbal hesitations (um, uh, like, you know)">
+                  <Toggle checked={aiRemoveFillers} onChange={(v) => { setAiRemoveFillers(v); save('aiRemoveFillers', v); }} />
+                </Row>
+                <Row title="Remove repetitions & false starts" desc="Clean up spoken stutters and self-corrections ('Tuesday, no wait, Wednesday' → 'Wednesday')">
+                  <Toggle checked={aiRemoveRepetitions} onChange={(v) => { setAiRemoveRepetitions(v); save('aiRemoveRepetitions', v); }} />
+                </Row>
+
+                <Row title="AI style & intelligence" desc="Select how AI polishes your dictated text">
+                  <select
+                    value={aiStylePreset}
+                    onChange={(e) => {
+                      const v = e.target.value as any;
+                      setAiStylePreset(v);
+                      save('aiStylePreset', v);
+                    }}
+                    className={selectCls}
+                  >
+                    <option value="clean">Clean & Natural — instant, local</option>
+                    <option value="polished">Polished & Professional — uses AI API</option>
+                    <option value="concise">Concise & Direct — uses AI API</option>
+                    <option value="casual">Casual & Relaxed — instant, local</option>
+                  </select>
+                </Row>
+
+                <div className="px-4 py-3.5">
+                  <div className="text-sm font-medium text-fg">Custom prompt & instructions</div>
+                  <div className="text-xs text-muted mt-0.5 mb-2">
+                    Add specific instructions for how AI should improve or structure your text (e.g. &quot;Use British English&quot;, &quot;Format multi-sentence text as bullet points&quot;).
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={aiCustomInstructions}
+                    onChange={(e) => setAiCustomInstructions(e.target.value)}
+                    placeholder="e.g. Convert numbers to words. Always output in bullet points. Use developer commit style."
+                    className="w-full bg-surface-2 border border-line text-fg text-sm rounded-lg p-3 focus:outline-none focus:border-accent resize-none placeholder:text-faint"
+                  />
+                  <div className="flex justify-end mt-2">
+                    <button
+                      onClick={() => { save('aiCustomInstructions', aiCustomInstructions); toast.success('Custom instructions saved'); }}
+                      className="px-4 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-strong transition-colors"
+                    >Save instructions</button>
+                  </div>
+                </div>
+
+                <div className="px-4 py-2.5 bg-surface-2/50 text-xs text-muted flex items-center justify-between">
+                  <span>Custom words from your <strong>Dictionary</strong> tab are automatically respected during AI cleanup.</span>
+                </div>
+              </>
+            )}
           </Section>
         )}
 

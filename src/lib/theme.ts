@@ -3,7 +3,7 @@ import { isNative, backend } from './bridge';
 
 export type Theme = 'light' | 'dark' | 'system';
 
-const KEY = 'dictando_theme';
+const KEY = 'mumblr_theme';
 
 function systemPrefersDark(): boolean {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
@@ -17,7 +17,7 @@ export function applyTheme(theme: Theme): void {
 
 /** Read the persisted theme synchronously (light default). Used at boot. */
 export function initialTheme(): Theme {
-  return (localStorage.getItem(KEY) as Theme) || 'light';
+  return (localStorage.getItem(KEY) as Theme) || (localStorage.getItem('dictando_theme') as Theme) || 'light';
 }
 
 /**

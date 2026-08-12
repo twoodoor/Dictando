@@ -12,6 +12,7 @@ mod inject;
 mod models;
 mod settings;
 mod shortcuts;
+mod sound;
 mod transcription;
 
 use std::path::PathBuf;
@@ -19,15 +20,41 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::menu::{
+    CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder,
+};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::ShortcutState;
+use tauri_plugin_updater::UpdaterExt;
 
 use audio::Recorder;
 use history::{History, HistoryEntry};
 use settings::{AppSettings, SettingsStore};
+use sound::SoundPlayer;
 use transcription::Transcriber;
+
+/// Languages available in the tray menu — kept in sync with `LANGUAGES` in
+/// `src/components/SettingsView.tsx`.
+const LANGUAGES: &[&str] = &[
+    "Auto-detect",
+    "English",
+    "Spanish",
+    "French",
+    "German",
+    "Italian",
+    "Portuguese",
+    "Romanian",
+    "Dutch",
+    "Russian",
+    "Polish",
+    "Ukrainian",
+    "Czech",
+    "Swedish",
+    "Danish",
+    "Finnish",
+    "Greek",
+];
 
 /// Managed application state (Send + Sync; usable from the recording thread).
 pub struct AppState {
@@ -37,6 +64,7 @@ pub struct AppState {
     history: History,
     app_data_dir: PathBuf,
     recording_state: Mutex<String>, // "idle" | "recording" | "transcribing"
+    sounds: SoundPlayer,            // discreet start/finish water-drop cues
 }
 
 #[derive(Serialize, Clone)]
@@ -45,6 +73,13 @@ struct BackendStatus {
     recording_state: String,
     model_loaded: bool,
     active_model_id: Option<String>,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct PartialTranscriptionPayload {
+    text: String,
+    is_final: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -95,7 +130,7 @@ fn update_overlay(app: &AppHandle, st: &str) {
                 let _ = w.hide();
             }
         }
-        None => log::warn!("overlay window 'overlay' not found"),
+        None => log::warn!("overlay window not found"),
     }
 }
 
@@ -119,12 +154,246 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// Start capturing audio and broadcast the new state.
+// ---------------------------------------------------------------------------
+// System tray — rich context menu (Microphone / Language / Launch Control
+// submenus + quick actions)
+// ---------------------------------------------------------------------------
+
+/// Build the full tray context menu, reflecting the current settings.
+fn build_tray_menu(handle: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+    let state = handle.state::<AppState>();
+    let cfg = state.settings.get();
+
+    // ── Microphone submenu ──────────────────────────────────────────────
+    let devices = Recorder::list_devices();
+    let mut mic_sub = SubmenuBuilder::with_id(handle, "mic-submenu", "Microphone");
+    for (id, label) in &devices {
+        let checked = *id == cfg.microphone_id
+            || (cfg.microphone_id.is_empty() && id == "default");
+        mic_sub = mic_sub.item(
+            &CheckMenuItemBuilder::with_id(format!("mic-{id}"), label)
+                .checked(checked)
+                .build(handle)?,
+        );
+    }
+    let mic_submenu = mic_sub.build()?;
+
+    // ── Language submenu ────────────────────────────────────────────────
+    let mut lang_sub = SubmenuBuilder::with_id(handle, "lang-submenu", "Language");
+    for lang in LANGUAGES {
+        let checked = *lang == cfg.language;
+        lang_sub = lang_sub.item(
+            &CheckMenuItemBuilder::with_id(format!("lang-{lang}"), *lang)
+                .checked(checked)
+                .build(handle)?,
+        );
+    }
+    let lang_submenu = lang_sub.build()?;
+
+    // ── Launch Control submenu ──────────────────────────────────────────
+    let launch_login = CheckMenuItemBuilder::with_id("launch-on-login", "Launch on Login")
+        .checked(cfg.launch_on_startup)
+        .build(handle)?;
+    let launch_show =
+        CheckMenuItemBuilder::with_id("launch-show", "Show Mumblr Immediately")
+            .checked(!cfg.start_hidden)
+            .build(handle)?;
+    let launch_hidden = CheckMenuItemBuilder::with_id("launch-hidden", "Keep in Background")
+        .checked(cfg.start_hidden)
+        .build(handle)?;
+    let launch_submenu = SubmenuBuilder::with_id(handle, "launch-submenu", "Launch Control")
+        .item(&launch_login)
+        .separator()
+        .item(&launch_show)
+        .item(&launch_hidden)
+        .build()?;
+
+    // ── Top-level items ─────────────────────────────────────────────────
+    let paste_last = MenuItemBuilder::with_id("paste-last", "Paste Last Transcript").build(handle)?;
+    let open_dashboard = MenuItemBuilder::with_id("open-dashboard", "Open Dashboard").build(handle)?;
+    let check_updates =
+        MenuItemBuilder::with_id("check-updates", "Check for Updates").build(handle)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit Mumblr").build(handle)?;
+
+    MenuBuilder::new(handle)
+        .item(&mic_submenu)
+        .item(&lang_submenu)
+        .item(&launch_submenu)
+        .item(&PredefinedMenuItem::separator(handle)?)
+        .item(&paste_last)
+        .item(&open_dashboard)
+        .item(&check_updates)
+        .item(&PredefinedMenuItem::separator(handle)?)
+        .item(&quit)
+        .build()
+}
+
+/// Rebuild and swap the tray menu so checkmarks reflect the latest settings.
+/// Safe to call from any thread (menu creation is on the main thread via the
+/// handle).
+fn rebuild_tray_menu(app: &AppHandle) {
+    match build_tray_menu(app) {
+        Ok(menu) => {
+            if let Some(tray) = app.tray_by_id("main-tray") {
+                if let Err(e) = tray.set_menu(Some(menu)) {
+                    log::error!("failed to update tray menu: {e}");
+                }
+            }
+        }
+        Err(e) => log::error!("failed to build tray menu: {e}"),
+    }
+}
+
+/// Handle a click on any item in the tray context menu.
+fn handle_tray_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
+    let id = event.id().as_ref().to_string();
+
+    // ── Microphone selection ────────────────────────────────────────────
+    if let Some(mic_id) = id.strip_prefix("mic-") {
+        let state = app.state::<AppState>();
+        let _ = state
+            .settings
+            .update(serde_json::json!({ "microphoneId": mic_id }));
+        rebuild_tray_menu(app);
+        return;
+    }
+
+    // ── Language selection ───────────────────────────────────────────────
+    if let Some(lang) = id.strip_prefix("lang-") {
+        let state = app.state::<AppState>();
+        let _ = state
+            .settings
+            .update(serde_json::json!({ "language": lang }));
+        rebuild_tray_menu(app);
+        return;
+    }
+
+    match id.as_str() {
+        // ── Launch Control ──────────────────────────────────────────────
+        "launch-on-login" => {
+            let state = app.state::<AppState>();
+            let new_val = !state.settings.get().launch_on_startup;
+            let _ = state
+                .settings
+                .update(serde_json::json!({ "launchOnStartup": new_val }));
+            sync_autostart(app, new_val);
+            rebuild_tray_menu(app);
+        }
+        "launch-show" => {
+            let state = app.state::<AppState>();
+            let _ = state
+                .settings
+                .update(serde_json::json!({ "startHidden": false }));
+            rebuild_tray_menu(app);
+        }
+        "launch-hidden" => {
+            let state = app.state::<AppState>();
+            let _ = state
+                .settings
+                .update(serde_json::json!({ "startHidden": true }));
+            rebuild_tray_menu(app);
+        }
+
+        // ── Quick actions ───────────────────────────────────────────────
+        "paste-last" => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let state = app.state::<AppState>();
+                let cfg = state.settings.get();
+                match state.history.list(1) {
+                    Ok(entries) if !entries.is_empty() => {
+                        let text = &entries[0].text;
+                        if let Err(e) = inject::inject_text(
+                            text,
+                            &cfg.paste_method,
+                            cfg.clipboard_handling == "preserve",
+                            cfg.append_trailing_space,
+                        ) {
+                            log::error!("paste last transcript failed: {e}");
+                        }
+                    }
+                    _ => log::info!("no transcript to paste"),
+                }
+            });
+        }
+        "open-dashboard" => show_main(app),
+        "check-updates" => {
+            let app = app.clone();
+            // Fire-and-forget on a background task — the updater plugin
+            // handles its own UI (dialog prompt + download progress).
+            tauri::async_runtime::spawn(async move {
+                match app.updater() {
+                    Ok(updater) => match updater.check().await {
+                        Ok(Some(update)) => {
+                            log::info!("update available: v{}", update.version);
+                            // Attempt download + install; user gets the native
+                            // restart prompt from the updater plugin.
+                            if let Err(e) = update.download_and_install(|_, _| {}, || {}).await {
+                                log::error!("update install failed: {e}");
+                            }
+                        }
+                        Ok(None) => {
+                            log::info!("no update available");
+                            let _ = app.emit("update-status", "up-to-date");
+                        }
+                        Err(e) => log::error!("update check failed: {e}"),
+                    },
+                    Err(e) => log::error!("updater not available: {e}"),
+                }
+            });
+        }
+        "quit" => app.exit(0),
+        _ => {}
+    }
+}
+
+/// Start capturing audio and broadcast the new state with live streaming transcription.
 fn begin_recording(app: AppHandle) {
     let state = app.state::<AppState>();
-    let mic = state.settings.get().microphone_id;
-    match state.recorder.start(&mic) {
-        Ok(()) => set_recording_state(&app, "recording"),
+    let cfg = state.settings.get();
+    let mic = cfg.microphone_id;
+    let model_dir = models::model_dir(&state.app_data_dir, &cfg.active_model_id);
+
+    // Pre-load model before starting stream if possible
+    let _ = state.transcriber.ensure_loaded(&cfg.active_model_id, &model_dir);
+
+    let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
+    match state.recorder.start_streaming(&mic, tx) {
+        Ok(()) => {
+            set_recording_state(&app, "recording");
+            if cfg.audio_feedback {
+                state.sounds.play_start();
+            }
+
+            // Spawn streaming transcription worker
+            let app_handle = app.clone();
+            std::thread::spawn(move || {
+                let mut buffer = Vec::<f32>::new();
+                let mut last_text = String::new();
+                let mut last_decode = std::time::Instant::now();
+
+                while let Ok(chunk) = rx.recv() {
+                    buffer.extend_from_slice(&chunk);
+                    // Decode partial every ~300ms if we have at least 0.5s of audio (8000 samples)
+                    if buffer.len() >= 8000 && last_decode.elapsed().as_millis() >= 300 {
+                        last_decode = std::time::Instant::now();
+                        let state = app_handle.state::<AppState>();
+                        if let Some(partial) = state.transcriber.transcribe_partial(&buffer) {
+                            if !partial.is_empty() && partial != last_text {
+                                last_text = partial.clone();
+                                let _ = app_handle.emit(
+                                    "transcription-partial",
+                                    PartialTranscriptionPayload {
+                                        text: partial,
+                                        is_final: false,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            });
+        }
         Err(e) => log::error!("failed to start recording: {e}"),
     }
 }
@@ -132,8 +401,15 @@ fn begin_recording(app: AppHandle) {
 /// Stop capture, transcribe on a background thread, inject the result, and emit
 /// a `transcription` event. Never blocks the caller (e.g. the shortcut handler).
 fn finish_recording(app: AppHandle) {
-    if !app.state::<AppState>().recorder.is_recording() {
-        return;
+    {
+        let state = app.state::<AppState>();
+        if !state.recorder.is_recording() {
+            return;
+        }
+        // Fire on key-up, before the (slower) transcription thread spawns.
+        if state.settings.get().audio_feedback {
+            state.sounds.play_finish();
+        }
     }
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
@@ -159,9 +435,26 @@ fn finish_recording(app: AppHandle) {
 
         match state.transcriber.transcribe(&samples) {
             Ok(raw) if !raw.is_empty() => {
+                let _ = app.emit(
+                    "transcription-partial",
+                    PartialTranscriptionPayload {
+                        text: raw.clone(),
+                        is_final: true,
+                    },
+                );
+
                 // Optional AI cleanup pass (opt-in; falls back to raw on failure).
                 let text = if cfg.ai_enhance_enabled && !cfg.gemini_api_key.is_empty() {
-                    match ai::enhance(&raw, &cfg.gemini_api_key, &cfg.custom_words) {
+                    let opts = ai::AiEnhanceOptions {
+                        api_key: &cfg.gemini_api_key,
+                        custom_words: &cfg.custom_words,
+                        fix_punctuation: cfg.ai_fix_punctuation,
+                        remove_fillers: cfg.ai_remove_fillers,
+                        remove_repetitions: cfg.ai_remove_repetitions,
+                        style_preset: &cfg.ai_style_preset,
+                        custom_instructions: &cfg.ai_custom_instructions,
+                    };
+                    match ai::enhance(&raw, &opts) {
                         Ok(t) => t,
                         Err(e) => {
                             log::warn!("AI enhance failed, using raw text: {e}");
@@ -418,6 +711,8 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Logging is always on (writes to the OS log dir) so release builds
             // are diagnosable. macOS log: ~/Library/Logs/com.dictando.app/.
@@ -432,11 +727,11 @@ pub fn run() {
 
             let settings = SettingsStore::load(app_data_dir.join("settings.json"));
 
-            // If the saved active model isn't loadable by this target's engine
+            // If the saved active model isn't loadable by this target's engines
             // (e.g. a Parakeet/ONNX id on Intel macOS), fall back to the default.
-            if models::catalog_entry(&settings.get().active_model_id).map(|e| e.format)
-                != Some(models::engine_format())
-            {
+            let active_fmt =
+                models::catalog_entry(&settings.get().active_model_id).map(|e| e.format);
+            if !active_fmt.is_some_and(|f| models::supported_formats().contains(&f)) {
                 let _ = settings.update(
                     serde_json::json!({ "activeModelId": settings::default_model_id() }),
                 );
@@ -453,27 +748,22 @@ pub fn run() {
                 history,
                 app_data_dir,
                 recording_state: Mutex::new("idle".into()),
+                sounds: SoundPlayer::new(),
             });
 
             if let Some(sc) = shortcuts::parse_shortcut(&snapshot.shortcut) {
                 shortcuts::reregister(app.handle(), &sc);
             }
 
-            // System tray — gives Show + a real Quit (the X minimizes).
+            // System tray — rich context menu with submenus.
             let handle = app.handle().clone();
-            let show = MenuItemBuilder::with_id("show", "Show Dictando").build(&handle)?;
-            let quit = MenuItemBuilder::with_id("quit", "Quit Dictando").build(&handle)?;
-            let menu = MenuBuilder::new(&handle).items(&[&show, &quit]).build()?;
+            let tray_menu = build_tray_menu(&handle)?;
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(handle.default_window_icon().unwrap().clone())
-                .tooltip("Dictando")
-                .menu(&menu)
+                .tooltip("Mumblr")
+                .menu(&tray_menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id().as_ref() {
-                    "show" => show_main(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
+                .on_menu_event(|app, event| handle_tray_menu_event(app, &event))
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,

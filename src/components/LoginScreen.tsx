@@ -43,7 +43,7 @@ export function LoginScreen() {
         <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
           <Mic size={32} />
         </div>
-        <h1 className="text-2xl font-semibold text-zinc-100 mb-2">Dictando</h1>
+        <h1 className="text-2xl font-semibold text-zinc-100 mb-2">Mumblr</h1>
         <p className="text-zinc-400 text-sm mb-8">Instant, offline speech-to-text.</p>
         <button
           onClick={handleLogin}

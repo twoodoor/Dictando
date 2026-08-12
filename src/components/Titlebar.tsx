@@ -34,7 +34,7 @@ export function Titlebar() {
         <span className="w-4 h-4 rounded-md bg-accent flex items-center justify-center">
           <Mic size={11} className="text-accent-fg" />
         </span>
-        <span className="text-[12px] font-semibold tracking-wide text-fg">Dictando</span>
+        <span className="text-[12px] font-semibold tracking-wide text-fg">Mumblr</span>
       </div>
       <div className="flex items-stretch h-full">
         <button onClick={minimize} className={btn} aria-label="Minimize"><Minus size={15} /></button>

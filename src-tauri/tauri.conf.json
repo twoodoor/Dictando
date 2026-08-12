@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Dictando",
-  "version": "0.1.1",
-  "identifier": "com.dictando.app",
+  "productName": "Mumblr",
+  "version": "0.3.0",
+  "identifier": "com.mumblr.desktop",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Dictando",
+        "title": "Mumblr",
         "width": 1040,
         "height": 720,
         "minWidth": 880,
@@ -41,14 +41,23 @@
       "csp": null
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU0QjY2MDFBMEEyRUVEREYKUldUZjdTNEtHbUMyVkFEbHJld0RtVjFBMVJhdURZWFpVUUFpUUxocTBERStHb2JycmZSWjFvRG0K",
+      "endpoints": [
+        "https://github.com/twoodoor/Dictando/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
+    "createUpdaterArtifacts": true,
     "active": true,
     "targets": "all",
-    "publisher": "Dictando",
-    "copyright": "© 2026 Dictando",
+    "publisher": "Mumblr",
+    "copyright": "© 2026 Mumblr",
     "category": "Productivity",
     "shortDescription": "Fast, private, multilingual dictation.",
-    "longDescription": "Dictando is a fast, accurate, local-first speech-to-text app. Transcription runs entirely on-device with downloadable models (Parakeet, Whisper, Moonshine). An optional AI layer cleans up dictated text. Press your shortcut, speak, and the text is typed into any app.",
+    "longDescription": "Mumblr is a fast, accurate, local-first speech-to-text app. Transcription runs entirely on-device with downloadable models (Parakeet, Whisper, Moonshine). An optional AI layer cleans up dictated text. Press your shortcut, speak, and the text is typed into any app.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

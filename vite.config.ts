@@ -14,8 +14,8 @@ export default defineConfig(({mode}) => {
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg'],
         manifest: {
-          name: 'Dictando',
-          short_name: 'Dictando',
+          name: 'Mumblr',
+          short_name: 'Mumblr',
           description: 'Instant, multilingual speech-to-text.',
           theme_color: '#09090b',
           background_color: '#09090b',

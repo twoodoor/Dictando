@@ -58,14 +58,14 @@ export function MacOnboarding({ onDone }: { onDone: () => void }) {
         initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
         className="w-full max-w-md bg-app border border-line rounded-3xl shadow-2xl p-6"
       >
-        <h2 className="font-display text-2xl text-fg">Welcome to Dictando</h2>
+        <h2 className="font-display text-2xl text-fg">Welcome to Mumblr</h2>
         <p className="text-sm text-muted mt-1 mb-5">Two quick macOS permissions and you're set.</p>
 
         <div className="space-y-3">
           <Step
             icon={<Mic size={18} />}
             title="Microphone"
-            desc="So Dictando can hear and transcribe your speech (on-device)."
+            desc="So Mumblr can hear and transcribe your speech (on-device)."
             done={micRequested}
           >
             <button onClick={enableMic} className="px-3 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-medium hover:bg-accent-strong transition-colors">
@@ -82,7 +82,7 @@ export function MacOnboarding({ onDone }: { onDone: () => void }) {
             <button onClick={grantA11y} className="px-3 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-medium hover:bg-accent-strong transition-colors inline-flex items-center gap-1.5">
               Open Accessibility settings <ExternalLink size={12} />
             </button>
-            <p className="text-[11px] text-faint mt-2">Toggle Dictando on in the list, then return here.</p>
+            <p className="text-[11px] text-faint mt-2">Toggle Mumblr on in the list, then return here.</p>
           </Step>
         </div>
 

@@ -1,10 +1,12 @@
 //! Local speech-to-text via `transcribe-rs`.
 //!
 //! Engine is chosen at compile time per target (see `Cargo.toml`):
-//! - **Intel macOS (x86_64):** Whisper (`whisper.cpp`) — ONNX ships no Intel-mac
-//!   prebuilt binary. Loads a single GGML `.bin`.
-//! - **Everything else:** Parakeet TDT 0.6B v3 (int8 ONNX) — 25 languages, fast.
-//!   Loads an extracted model directory.
+//! - **Intel macOS (x86_64):** Whisper (`whisper.cpp`) only — ONNX ships no
+//!   Intel-mac prebuilt binary. Loads a single GGML `.bin`.
+//! - **Everything else (Windows, Apple-Silicon macOS, Linux):** both ONNX
+//!   (Parakeet TDT 0.6B v3 int8 — 25 languages, fast — plus Moonshine/
+//!   SenseVoice) *and* whisper.cpp, so the OpenAI Whisper GGML models load too.
+//!   ONNX loads an extracted model directory; Whisper loads a single `.bin`.
 //!
 //! Audio in: 16 kHz mono `f32` samples (from `audio.rs`).
 
@@ -25,10 +27,15 @@ use transcribe_rs::onnx::sense_voice::SenseVoiceModel;
 use transcribe_rs::onnx::Quantization;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 use transcribe_rs::{SpeechModel, TranscribeOptions};
+// whisper.cpp is also compiled on these targets so the OpenAI Whisper GGML
+// models load; `WhisperEngine` implements `SpeechModel`, so it boxes into the
+// same dispatch as the ONNX engines below.
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+use transcribe_rs::whisper_cpp::WhisperEngine;
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 type Engine = Box<dyn SpeechModel + Send>;
 
-// --- Whisper (whisper.cpp) on Intel macOS ---
+// --- Whisper (whisper.cpp) on Intel macOS: the only compiled engine ---
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 use transcribe_rs::whisper_cpp::{WhisperEngine, WhisperInferenceParams};
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -52,6 +59,15 @@ pub fn is_hallucination(text: &str) -> bool {
 
 // --- Engine-specific load + transcribe (the only parts that differ) ---
 
+/// Locate the single GGML `.bin` inside a Whisper model directory.
+fn find_ggml_bin(model_dir: &Path) -> Result<PathBuf, String> {
+    std::fs::read_dir(model_dir)
+        .map_err(|e| e.to_string())?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .find(|p| p.extension().map(|x| x == "bin").unwrap_or(false))
+        .ok_or_else(|| format!("no .bin model file in {}", model_dir.display()))
+}
+
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     let model: Engine = if model_id.starts_with("parakeet") {
@@ -63,6 +79,9 @@ fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
         )
     } else if model_id.starts_with("sense-voice") {
         Box::new(SenseVoiceModel::load(model_dir, &Quantization::Int8).map_err(|e| e.to_string())?)
+    } else if model_id.starts_with("whisper") {
+        // OpenAI Whisper via whisper.cpp — loads a single GGML .bin.
+        Box::new(WhisperEngine::load(&find_ggml_bin(model_dir)?).map_err(|e| e.to_string())?)
     } else {
         return Err(format!("model '{model_id}' is not supported by this build"));
     };
@@ -79,12 +98,7 @@ fn run_transcribe(model: &mut Engine, samples: &[f32]) -> Result<String, String>
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn load_engine(_model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     // Whisper loads a single GGML .bin from inside the model directory.
-    let bin = std::fs::read_dir(model_dir)
-        .map_err(|e| e.to_string())?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| p.extension().map(|x| x == "bin").unwrap_or(false))
-        .ok_or_else(|| format!("no .bin model file in {}", model_dir.display()))?;
-    WhisperEngine::load(&bin).map_err(|e| e.to_string())
+    WhisperEngine::load(&find_ggml_bin(model_dir)?).map_err(|e| e.to_string())
 }
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn run_transcribe(model: &mut Engine, samples: &[f32]) -> Result<String, String> {
@@ -151,6 +165,19 @@ impl Transcriber {
             text.len()
         );
         if is_hallucination(&text) { Ok(String::new()) } else { Ok(text) }
+    }
+
+    /// Fast partial transcription pass for streaming audio without verbose logging.
+    pub fn transcribe_partial(&self, samples: &[f32]) -> Option<String> {
+        let mut guard = self.loaded.lock().ok()?;
+        let loaded = guard.as_mut()?;
+        let text = run_transcribe(&mut loaded.model, samples).ok()?;
+        let text = text.trim().to_string();
+        if is_hallucination(&text) {
+            None
+        } else {
+            Some(text)
+        }
     }
 
     /// Unload the model after `idle_minutes` of inactivity (0 disables).

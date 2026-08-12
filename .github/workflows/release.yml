@@ -72,13 +72,13 @@ jobs:
           # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}        # app-specific password
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Windows (Azure Trusted Signing or a cert) — see docs/deployment.md.
-          # Updater signing (if enabled):
-          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Updater signing:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Dictando ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install Dictando.'
-          releaseDraft: true
+          releaseName: 'Mumblr ${{ github.ref_name }}'
+          releaseBody: 'See the assets below to download and install Mumblr.'
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

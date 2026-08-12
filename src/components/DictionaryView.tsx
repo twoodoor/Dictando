@@ -45,7 +45,7 @@ export function DictionaryView() {
       <div className="max-w-3xl mx-auto px-8 py-8">
         <h1 className="font-display text-3xl text-fg">Dictionary</h1>
         <p className="text-muted text-sm mt-1">
-          Teach Dictando the words and names you use — people, brands, technical terms.
+          Teach Mumblr the words and names you use — people, brands, technical terms.
         </p>
 
         {!isNative ? (

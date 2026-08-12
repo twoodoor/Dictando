@@ -6,6 +6,10 @@ Running record of significant changes, decisions, and their rationale during the
 
 ## Index
 
+- [2026-08-07 — Start/finish sound cues (synthesized water drops)](./2026-08-07-audio-cues.md)
+- [2026-08-07 — OpenAI Whisper on all platforms (hybrid engine everywhere)](./2026-08-07-whisper-all-platforms.md)
+- [2026-07-30 — Configurable AI cleanup options, intelligence presets & custom instructions](./2026-07-30-ai-enhancement-options.md)
+- [2026-07-27 — Rename application to Mumblr](./2026-07-27-rename-to-mumblr.md)
 - [2026-06-16 — Project rebuild kickoff: Tauri pivot, docs & devlog scaffolding](./2026-06-16-rebuild-kickoff.md)
 - [2026-06-16 — Phase 1: Tauri backend — capture → transcribe → inject](./2026-06-16-phase1-tauri-backend.md)
 - [2026-06-16 — Phase 2: Model catalog + download manager](./2026-06-16-phase2-model-downloads.md)

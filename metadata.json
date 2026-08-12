@@ -1,5 +1,5 @@
 {
-  "name": "Dictando",
+  "name": "Mumblr",
   "description": "A lightning-fast, multilingual dictation app for macOS.",
   "requestFramePermissions": [
     "microphone"

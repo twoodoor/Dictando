@@ -206,23 +206,25 @@ pub fn is_installed(app_data_dir: &Path, model_id: &str) -> bool {
             .unwrap_or(false)
 }
 
-/// The model format the compiled-in engine can load on this target.
-/// Intel macOS uses Whisper (ggml); everything else uses Parakeet/ONNX.
-pub fn engine_format() -> &'static str {
+/// Model formats the compiled-in engines can load on this target.
+/// Intel macOS ships only whisper.cpp (ONNX has no x86_64-darwin prebuilt);
+/// every other target compiles both ONNX (Parakeet et al.) and whisper.cpp,
+/// so it can load both formats.
+pub fn supported_formats() -> &'static [&'static str] {
     if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
-        "ggml"
+        &["ggml"]
     } else {
-        "onnx"
+        &["onnx", "ggml"]
     }
 }
 
 /// Build the UI-facing catalog (only models the current engine can load),
 /// computing `installed` per entry.
 pub fn list(app_data_dir: &Path) -> Vec<ModelInfo> {
-    let fmt = engine_format();
+    let formats = supported_formats();
     CATALOG
         .iter()
-        .filter(|e| e.format == fmt)
+        .filter(|e| formats.contains(&e.format))
         .map(|e| ModelInfo {
             id: e.id.to_string(),
             name: e.name.to_string(),

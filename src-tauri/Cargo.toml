@@ -1,8 +1,8 @@
 [package]
-name = "dictando"
-version = "0.1.0"
-description = "Dictando — fast, accurate, local-first dictation"
-authors = ["Dictando"]
+name = "mumblr"
+version = "0.3.0"
+description = "Mumblr — fast, accurate, local-first dictation"
+authors = ["Mumblr"]
 license = ""
 repository = ""
 edition = "2021"
@@ -24,6 +24,8 @@ log = "0.4"
 tauri = { version = "2.11.2", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 # Transcription engine — see per-target sections below. ONNX (Parakeet) ships
 # no Intel-macOS prebuilt, so Intel macOS uses whisper.cpp (compiles from source)
@@ -31,6 +33,10 @@ tauri-plugin-autostart = "2"
 
 # Audio capture, text injection, clipboard, and global shortcuts.
 cpal = "0.15"
+# Playback for the synthesized start/finish water-drop cues (see sound.rs).
+# rodio rides on cpal 0.15 — the same version used for capture — so no
+# duplicate cpal ends up in the dependency tree.
+rodio = { version = "0.20", default-features = false }
 enigo = "0.3"
 arboard = "3"
 tauri-plugin-global-shortcut = "2"
@@ -55,6 +61,7 @@ macos-accessibility-client = "0.0.1"
 [target.'cfg(all(target_os = "macos", target_arch = "x86_64"))'.dependencies]
 transcribe-rs = { version = "0.3", features = ["whisper-cpp"] }
 
-# - Everything else (Windows, Apple-Silicon macOS, Linux): Parakeet via ONNX.
+# - Everything else (Windows, Apple-Silicon macOS, Linux): Parakeet via ONNX,
+#   plus whisper.cpp so the OpenAI Whisper (GGML) catalog entries also load.
 [target.'cfg(not(all(target_os = "macos", target_arch = "x86_64")))'.dependencies]
-transcribe-rs = { version = "0.3", features = ["onnx"] }
+transcribe-rs = { version = "0.3", features = ["onnx", "whisper-cpp"] }

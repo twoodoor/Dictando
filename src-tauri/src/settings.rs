@@ -38,6 +38,24 @@ pub struct AppSettings {
     // AI enhancement layer (Phase 4). Off by default → transcription stays offline.
     pub ai_enhance_enabled: bool,
     pub gemini_api_key: String,
+    #[serde(default = "default_true")]
+    pub ai_fix_punctuation: bool,
+    #[serde(default = "default_true")]
+    pub ai_remove_fillers: bool,
+    #[serde(default = "default_true")]
+    pub ai_remove_repetitions: bool,
+    #[serde(default = "default_clean")]
+    pub ai_style_preset: String, // "clean" | "polished" | "concise" | "casual"
+    #[serde(default)]
+    pub ai_custom_instructions: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_clean() -> String {
+    "clean".to_string()
 }
 
 /// Default active model for this target. Intel macOS runs the Whisper engine
@@ -74,6 +92,11 @@ impl Default for AppSettings {
             theme: "light".into(),
             ai_enhance_enabled: false,
             gemini_api_key: String::new(),
+            ai_fix_punctuation: true,
+            ai_remove_fillers: true,
+            ai_remove_repetitions: true,
+            ai_style_preset: "clean".into(),
+            ai_custom_instructions: String::new(),
         }
     }
 }
