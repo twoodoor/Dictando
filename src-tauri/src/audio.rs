@@ -8,7 +8,6 @@
 //! driven, and dropped entirely on a dedicated capture thread; only `Send`
 //! handles (flags, the shared sample buffer) cross thread boundaries.
 
-use std::sync::mpsc::Sender;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -53,25 +52,7 @@ impl Recorder {
     }
 
     /// Begin recording from `microphone_id` ("default" or a cpal device name).
-    #[allow(dead_code)]
     pub fn start(&self, microphone_id: &str) -> Result<(), String> {
-        self.start_internal(microphone_id, None)
-    }
-
-    /// Begin recording with real-time 16kHz mono chunk streaming to `chunk_tx`.
-    pub fn start_streaming(
-        &self,
-        microphone_id: &str,
-        chunk_tx: Sender<Vec<f32>>,
-    ) -> Result<(), String> {
-        self.start_internal(microphone_id, Some(chunk_tx))
-    }
-
-    fn start_internal(
-        &self,
-        microphone_id: &str,
-        chunk_tx: Option<Sender<Vec<f32>>>,
-    ) -> Result<(), String> {
         let mut guard = self.capture.lock().unwrap();
         if guard.is_some() {
             return Err("already recording".into());
@@ -105,15 +86,11 @@ impl Recorder {
         let handle = std::thread::spawn(move || {
             let err_fn = |e| log::error!("audio stream error: {e}");
             let buf_for_cb = thread_buffer.clone();
-            let tx_for_cb = chunk_tx;
             let push = move |samples: &[f32]| {
                 let mono = downmix_to_mono(samples, channels);
                 let resampled = resample_linear(&mono, src_rate, TARGET_RATE);
                 if let Ok(mut b) = buf_for_cb.lock() {
                     b.extend_from_slice(&resampled);
-                }
-                if let Some(ref tx) = tx_for_cb {
-                    let _ = tx.send(resampled);
                 }
             };
 

@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Mic, Cpu, History, BookA, Settings, Sun, Moon, Monitor } from 'lucide-react';
 import type { Theme } from '../lib/theme';
+import { isNative } from '../lib/bridge';
 
 export type Tab = 'record' | 'models' | 'history' | 'dictionary' | 'settings';
 
@@ -29,6 +30,16 @@ export function Sidebar({
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    if (isNative) {
+      import('@tauri-apps/api/app').then(({ getVersion }) =>
+        getVersion().then(setVersion)
+      ).catch(() => {});
+    }
+  }, []);
+
   return (
     <aside className="w-[224px] shrink-0 bg-app border-r border-line flex flex-col">
       <nav className="flex-1 px-3 pt-4 space-y-1">
@@ -51,7 +62,7 @@ export function Sidebar({
         })}
       </nav>
 
-      {/* Theme switcher */}
+      {/* Theme switcher + version */}
       <div className="p-3 border-t border-line">
         <div className="flex items-center gap-1 bg-surface-2 rounded-xl p-1">
           {THEMES.map(({ id, icon, label }) => (
@@ -67,6 +78,11 @@ export function Sidebar({
             </button>
           ))}
         </div>
+        {version && (
+          <div className="mt-2 text-center text-[10px] text-faint select-none tracking-wide">
+            v{version}
+          </div>
+        )}
       </div>
     </aside>
   );

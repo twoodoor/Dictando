@@ -176,18 +176,11 @@ export const backend = {
 // Event subscriptions (each maps to an app.emit in the Rust backend)
 // ---------------------------------------------------------------------------
 
-export interface PartialTranscription {
-  text: string;
-  isFinal: boolean;
-}
-
 export const events = {
   onRecordingState: (h: (state: RecordingState) => void) =>
     listen<RecordingState>('recording-state', h),
   onTranscription: (h: (r: TranscriptionResult) => void) =>
     listen<TranscriptionResult>('transcription', h),
-  onPartialTranscription: (h: (p: PartialTranscription) => void) =>
-    listen<PartialTranscription>('transcription-partial', h),
   onModelStatus: (h: (s: BackendStatus) => void) =>
     listen<BackendStatus>('model-status', h),
   onDownloadProgress: (h: (p: DownloadProgress) => void) =>

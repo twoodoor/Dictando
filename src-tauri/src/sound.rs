@@ -8,15 +8,20 @@
 //! - **Start** — a single rising drop (C5→G5): "listening".
 //! - **Finish** — two drops, high then resolving lower (G5→ then C5): "got it".
 //!
-//! rodio's output stream is `!Send`, so a dedicated thread owns it for the
-//! app's lifetime and the rest of the app just posts play commands over a
-//! channel. Playback is best-effort: if no output device is available the cues
-//! are silently dropped (never an error the user sees).
+//! rodio's output stream keeps a background WASAPI mixing thread alive for the
+//! stream's lifetime — on Windows this consumes measurable CPU even when idle.
+//! To avoid burning ~30% CPU at rest, the stream is created **on-demand** for
+//! each cue and dropped immediately after playback finishes.
+//!
+//! A dedicated thread serialises play requests so the main app never blocks.
+//! Playback is best-effort: if no output device is available the cues are
+//! silently dropped (never an error the user sees).
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
 
 use rodio::buffer::SamplesBuffer;
+use rodio::Source;
 
 const SAMPLE_RATE: u32 = 44_100;
 
@@ -70,25 +75,37 @@ impl Default for SoundPlayer {
     }
 }
 
-/// The audio thread: hold the output stream alive and mix cues on demand.
+/// The audio thread: open an output stream on-demand for each cue, play the
+/// samples, wait for playback to finish, then drop the stream so the WASAPI
+/// mixing thread doesn't keep running and burning CPU while idle.
 fn run(rx: Receiver<Cue>, start: Vec<f32>, finish: Vec<f32>) {
-    let (_stream, handle) = match rodio::OutputStream::try_default() {
-        Ok(pair) => pair,
-        Err(e) => {
-            log::warn!("audio cues disabled (no output device): {e}");
-            return;
-        }
-    };
     while let Ok(cue) = rx.recv() {
         let samples = match cue {
-            Cue::Start => start.clone(),
-            Cue::Finish => finish.clone(),
+            Cue::Start => &start,
+            Cue::Finish => &finish,
         };
-        // play_raw mixes asynchronously and returns immediately, so overlapping
-        // presses never block or cut each other off.
-        if let Err(e) = handle.play_raw(SamplesBuffer::new(1, SAMPLE_RATE, samples)) {
+        // Open output stream just for this cue.
+        let (_stream, handle) = match rodio::OutputStream::try_default() {
+            Ok(pair) => pair,
+            Err(e) => {
+                log::warn!("audio cues disabled (no output device): {e}");
+                continue;
+            }
+        };
+        let source = SamplesBuffer::new(1, SAMPLE_RATE, samples.clone());
+        let duration = source.total_duration();
+        if let Err(e) = handle.play_raw(source) {
             log::warn!("failed to play audio cue: {e}");
+            continue;
         }
+        // Wait for playback to finish before dropping the stream.
+        if let Some(d) = duration {
+            std::thread::sleep(d + std::time::Duration::from_millis(50));
+        } else {
+            // Fallback: generous max cue length.
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+        // _stream and handle are dropped here → WASAPI thread exits.
     }
 }
 
@@ -128,3 +145,4 @@ fn render_finish() -> Vec<f32> {
     render_drop(523.25, 660.0, 0.12, 32.0, 0.26, &mut out);
     out
 }
+

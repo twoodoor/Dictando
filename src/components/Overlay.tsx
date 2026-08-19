@@ -2,28 +2,19 @@ import React, { useEffect, useState } from 'react';
 import { events, type RecordingState } from '../lib/bridge';
 
 /**
- * Recording HUD shown in the always-on-top `overlay` window. Displays live
- * streaming partial transcription text as the user speaks.
+ * Recording HUD shown in the always-on-top `overlay` window. Displays the
+ * current recording state as static status text.
  */
 export function Overlay() {
   const [state, setState] = useState<RecordingState>('recording');
-  const [partialText, setPartialText] = useState<string>('');
 
   useEffect(() => {
     const unlistenState = events.onRecordingState((newState) => {
       setState(newState);
-      if (newState === 'idle') {
-        setPartialText('');
-      }
-    });
-
-    const unlistenPartial = events.onPartialTranscription((p) => {
-      setPartialText(p.text);
     });
 
     return () => {
       unlistenState();
-      unlistenPartial();
     };
   }, []);
 
@@ -39,7 +30,7 @@ export function Overlay() {
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-500" />
             </span>
             <span className="text-[12px] font-medium text-white truncate">
-              {partialText ? partialText : 'Listening…'}
+              Listening…
             </span>
             <div className="flex items-end gap-0.5 h-3.5 shrink-0">
               {[0, 1, 2, 3].map((i) => (
@@ -55,7 +46,7 @@ export function Overlay() {
           <>
             <span className="h-3 w-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin shrink-0" />
             <span className="text-[12px] font-medium text-white truncate max-w-[400px]">
-              {partialText ? partialText : 'Transcribing…'}
+              Transcribing…
             </span>
           </>
         )}

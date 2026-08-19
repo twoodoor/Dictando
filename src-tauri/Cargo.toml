@@ -1,6 +1,6 @@
 [package]
 name = "mumblr"
-version = "0.3.0"
+version = "0.3.1"
 description = "Mumblr — fast, accurate, local-first dictation"
 authors = ["Mumblr"]
 license = ""
@@ -40,6 +40,7 @@ rodio = { version = "0.20", default-features = false }
 enigo = "0.3"
 arboard = "3"
 tauri-plugin-global-shortcut = "2"
+whisper-rs = "0.16"
 
 # Model downloads: HTTP streaming, gzip/tar extraction, checksum verification.
 reqwest = { version = "0.12", features = ["blocking", "json"] }

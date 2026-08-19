@@ -80,6 +80,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [appVersion, setAppVersion] = useState('');
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
@@ -87,12 +88,17 @@ export function SettingsView({ user }: { user: User | null }) {
       const update = await checkForAppUpdates();
       setUpdateInfo(update);
       if (!update) {
-        toast.success('Mumblr is up to date (v0.2.0)');
+        toast.success(`Mumblr is up to date${appVersion ? ` (v${appVersion})` : ''}`);
       } else {
         toast.info(`Version ${update.version} is available!`);
       }
-    } catch (e) {
-      toast.error('Could not check for updates');
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes('404') || msg.includes('Not Found')) {
+        toast.error('No releases published yet — push a v* tag to trigger a release build');
+      } else {
+        toast.error(`Could not check for updates: ${msg}`);
+      }
     } finally {
       setCheckingUpdate(false);
     }
@@ -144,6 +150,14 @@ export function SettingsView({ user }: { user: User | null }) {
       if (d.apiKey) setApiKey(d.apiKey);
     }).catch(() => {});
   }, [user]);
+
+  // Load app version from Tauri.
+  useEffect(() => {
+    if (!isNative) return;
+    import('@tauri-apps/api/app').then(({ getVersion }) =>
+      getVersion().then(setAppVersion)
+    ).catch(() => {});
+  }, []);
 
   // Microphones.
   useEffect(() => {
@@ -278,7 +292,7 @@ export function SettingsView({ user }: { user: User | null }) {
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
             </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : 'Mumblr v0.2.0'}>
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr${appVersion ? ` v${appVersion}` : ''}`}>
               {updateInfo ? (
                 <button
                   disabled={installingUpdate}

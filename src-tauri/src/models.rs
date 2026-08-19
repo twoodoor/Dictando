@@ -373,7 +373,8 @@ pub fn install(app: &AppHandle, model_id: &str, app_data_dir: &Path) -> Result<(
 }
 
 /// Extract a `.tar.gz` into a staging dir, then place its contents at `dest`.
-/// Handles archives that wrap everything in a single top-level directory.
+/// Handles archives that wrap everything in a single top-level directory or
+/// contain macOS metadata files (like ._* and .DS_Store).
 fn extract_targz(archive: &Path, root: &Path, dest: &Path) -> Result<(), String> {
     let staging = root.join(".staging");
     if staging.exists() {
@@ -385,17 +386,74 @@ fn extract_targz(archive: &Path, root: &Path, dest: &Path) -> Result<(), String>
     let gz = flate2::read::GzDecoder::new(f);
     tar::Archive::new(gz).unpack(&staging).map_err(|e| e.to_string())?;
 
-    let entries: Vec<_> = std::fs::read_dir(&staging)
+    // Filter out AppleDouble metadata files and system artifacts.
+    let real_entries: Vec<_> = std::fs::read_dir(&staging)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok())
+        .filter(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            !name.starts_with("._") && name != ".DS_Store" && name != "__MACOSX"
+        })
         .collect();
-    if entries.len() == 1 && entries[0].path().is_dir() {
-        std::fs::rename(entries[0].path(), dest).map_err(|e| e.to_string())?;
+
+    if real_entries.len() == 1 && real_entries[0].path().is_dir() {
+        std::fs::rename(real_entries[0].path(), dest).map_err(|e| e.to_string())?;
         std::fs::remove_dir_all(&staging).ok();
     } else {
         std::fs::rename(&staging, dest).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Find the directory where actual model files (.onnx / vocab.txt / .bin) live.
+/// If `dir` contains a subdirectory with the model files, returns that subdirectory.
+pub fn find_model_dir(dir: &Path) -> PathBuf {
+    if !dir.exists() || !dir.is_dir() {
+        return dir.to_path_buf();
+    }
+    // Check if the dir directly contains model files (.onnx or .bin)
+    let has_model_files = std::fs::read_dir(dir)
+        .ok()
+        .map(|entries| {
+            entries.filter_map(|e| e.ok()).any(|e| {
+                let p = e.path();
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with("._") || name.starts_with('.') {
+                    return false;
+                }
+                p.extension().map(|ext| ext == "onnx" || ext == "bin").unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
+    if has_model_files {
+        return dir.to_path_buf();
+    }
+
+    // Look one level deeper for a subdirectory containing model files
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if p.is_dir() && !name.starts_with("._") && !name.starts_with('.') && name != "__MACOSX" {
+                if let Ok(sub_entries) = std::fs::read_dir(&p) {
+                    let sub_has_models = sub_entries.filter_map(|e| e.ok()).any(|e| {
+                        let sub_p = e.path();
+                        let sub_name = e.file_name().to_string_lossy().to_string();
+                        if sub_name.starts_with("._") || sub_name.starts_with('.') {
+                            return false;
+                        }
+                        sub_p.extension().map(|ext| ext == "onnx" || ext == "bin").unwrap_or(false)
+                    });
+                    if sub_has_models {
+                        return p;
+                    }
+                }
+            }
+        }
+    }
+
+    dir.to_path_buf()
 }
 
 /// Move a file, falling back to copy+delete across volumes.
@@ -407,3 +465,4 @@ fn move_file(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::remove_file(src).ok();
     Ok(())
 }
+

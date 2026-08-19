@@ -6,6 +6,7 @@ Running record of significant changes, decisions, and their rationale during the
 
 ## Index
 
+- [2026-08-19 — Model inference optimizations, direct Whisper Greedy decoding & directory auto-healing (v0.3.1)](./2026-08-19-model-inference-whisper-optimizations.md)
 - [2026-08-07 — Start/finish sound cues (synthesized water drops)](./2026-08-07-audio-cues.md)
 - [2026-08-07 — OpenAI Whisper on all platforms (hybrid engine everywhere)](./2026-08-07-whisper-all-platforms.md)
 - [2026-07-30 — Configurable AI cleanup options, intelligence presets & custom instructions](./2026-07-30-ai-enhancement-options.md)

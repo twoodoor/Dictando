@@ -75,12 +75,7 @@ struct BackendStatus {
     active_model_id: Option<String>,
 }
 
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct PartialTranscriptionPayload {
-    text: String,
-    is_final: bool,
-}
+
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -347,52 +342,16 @@ fn handle_tray_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
     }
 }
 
-/// Start capturing audio and broadcast the new state with live streaming transcription.
+/// Start capturing audio and broadcast the new state.
 fn begin_recording(app: AppHandle) {
     let state = app.state::<AppState>();
     let cfg = state.settings.get();
-    let mic = cfg.microphone_id;
-    let model_dir = models::model_dir(&state.app_data_dir, &cfg.active_model_id);
-
-    // Pre-load model before starting stream if possible
-    let _ = state.transcriber.ensure_loaded(&cfg.active_model_id, &model_dir);
-
-    let (tx, rx) = std::sync::mpsc::channel::<Vec<f32>>();
-    match state.recorder.start_streaming(&mic, tx) {
+    match state.recorder.start(&cfg.microphone_id) {
         Ok(()) => {
             set_recording_state(&app, "recording");
             if cfg.audio_feedback {
                 state.sounds.play_start();
             }
-
-            // Spawn streaming transcription worker
-            let app_handle = app.clone();
-            std::thread::spawn(move || {
-                let mut buffer = Vec::<f32>::new();
-                let mut last_text = String::new();
-                let mut last_decode = std::time::Instant::now();
-
-                while let Ok(chunk) = rx.recv() {
-                    buffer.extend_from_slice(&chunk);
-                    // Decode partial every ~300ms if we have at least 0.5s of audio (8000 samples)
-                    if buffer.len() >= 8000 && last_decode.elapsed().as_millis() >= 300 {
-                        last_decode = std::time::Instant::now();
-                        let state = app_handle.state::<AppState>();
-                        if let Some(partial) = state.transcriber.transcribe_partial(&buffer) {
-                            if !partial.is_empty() && partial != last_text {
-                                last_text = partial.clone();
-                                let _ = app_handle.emit(
-                                    "transcription-partial",
-                                    PartialTranscriptionPayload {
-                                        text: partial,
-                                        is_final: false,
-                                    },
-                                );
-                            }
-                        }
-                    }
-                }
-            });
         }
         Err(e) => log::error!("failed to start recording: {e}"),
     }
@@ -433,15 +392,9 @@ fn finish_recording(app: AppHandle) {
             return;
         }
 
-        match state.transcriber.transcribe(&samples) {
+        let lang_code = transcription::language_to_code(&cfg.language);
+        match state.transcriber.transcribe(&samples, lang_code) {
             Ok(raw) if !raw.is_empty() => {
-                let _ = app.emit(
-                    "transcription-partial",
-                    PartialTranscriptionPayload {
-                        text: raw.clone(),
-                        is_final: true,
-                    },
-                );
 
                 // Optional AI cleanup pass (opt-in; falls back to raw on failure).
                 let text = if cfg.ai_enhance_enabled && !cfg.gemini_api_key.is_empty() {
