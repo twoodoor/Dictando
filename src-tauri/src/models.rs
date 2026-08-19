@@ -149,7 +149,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "whisper-medium",
         name: "Whisper Medium",
-        description: "Good accuracy, medium speed. Heavier on CPU.",
+        description: "Good accuracy. Slow on CPU — best with GPU or fast machines.",
         languages: "Multi-language",
         size_bytes: 539 * 1024 * 1024,
         accuracy: 0.82,
@@ -162,7 +162,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "whisper-large",
         name: "Whisper Large v3",
-        description: "Best accuracy, slowest. For powerful machines.",
+        description: "Best accuracy, very slow on CPU. For powerful machines only.",
         languages: "Multi-language",
         size_bytes: 1_080 * 1024 * 1024,
         accuracy: 0.9,
@@ -175,16 +175,17 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "whisper-turbo",
         name: "Whisper Turbo",
-        description: "Balanced accuracy and speed.",
+        description: "Fast distilled large model (quantized). Good speed/accuracy trade-off.",
         languages: "Multi-language",
-        size_bytes: 1_600 * 1024 * 1024,
-        accuracy: 0.88,
-        speed: 0.6,
+        size_bytes: 574 * 1024 * 1024,
+        accuracy: 0.87,
+        speed: 0.7,
         format: "ggml",
         supports_translation: true,
-        download_url: "https://blob.handy.computer/ggml-large-v3-turbo.bin",
-        sha256: "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+        download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        sha256: "",
     },
+
 ];
 
 /// Root directory that holds all installed models.

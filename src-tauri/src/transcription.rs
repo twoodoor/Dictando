@@ -103,6 +103,15 @@ impl DirectWhisperEngine {
         params.set_suppress_nst(true);
         params.set_no_speech_thold(0.6);
         params.set_single_segment(false);
+        // Disable temperature fallback — a single greedy pass is sufficient for
+        // dictation and prevents multi-pass retry loops that cause extreme latency.
+        params.set_temperature(0.0);
+        params.set_temperature_inc(0.0);
+
+        // Abort if transcription exceeds 30 seconds (prevents app hang on very
+        // large models running on CPU).
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        params.set_abort_callback_safe(move || Instant::now() > deadline);
 
         self.state
             .full(params, samples)
@@ -120,6 +129,7 @@ impl DirectWhisperEngine {
 
         Ok(full_text)
     }
+
 }
 
 pub enum Engine {
