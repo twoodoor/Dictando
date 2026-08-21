@@ -1,6 +1,6 @@
 [package]
 name = "mumblr"
-version = "0.3.2"
+version = "0.3.3"
 description = "Mumblr — fast, accurate, local-first dictation"
 authors = ["Mumblr"]
 license = ""

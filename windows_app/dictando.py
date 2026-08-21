@@ -29,8 +29,8 @@ FW_HALLUCINATIONS = {
     "subtitles by", "amara.org",
 }
 
-GOOGLE_CLIENT_ID = "987257492661-dr4orf873kn2nj2h31hur9mc6tfj9cio.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET = "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"
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
 

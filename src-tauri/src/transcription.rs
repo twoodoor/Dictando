@@ -86,10 +86,12 @@ impl DirectWhisperEngine {
     }
 
     pub fn transcribe(&mut self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
+        // Optimal thread count for whisper.cpp on multi-core CPUs is 4-8.
+        // Higher counts (16-32) cause severe L3 cache thrashing and latency spikes.
         let threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(4)
-            .clamp(1, 16);
+            .clamp(1, 8);
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
         params.set_n_threads(threads);
@@ -141,12 +143,29 @@ pub enum Engine {
 /// Locate the single GGML `.bin` inside a Whisper model directory.
 fn find_ggml_bin(model_dir: &Path) -> Result<PathBuf, String> {
     let resolved = find_model_dir(model_dir);
-    std::fs::read_dir(&resolved)
+    let mut bins: Vec<PathBuf> = std::fs::read_dir(&resolved)
         .map_err(|e| e.to_string())?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .find(|p| p.extension().map(|x| x == "bin").unwrap_or(false))
-        .ok_or_else(|| format!("no .bin model file in {}", resolved.display()))
+        .filter(|p| p.extension().map(|x| x == "bin").unwrap_or(false))
+        .collect();
+
+    if bins.is_empty() {
+        return Err(format!("no .bin model file in {}", resolved.display()));
+    }
+
+    // If multiple .bin files exist, prioritize quantized models over unquantized ones
+    bins.sort_by_key(|p| {
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.contains("q5_0") || name.contains("q4") {
+            0
+        } else {
+            1
+        }
+    });
+
+    Ok(bins.remove(0))
 }
+
 
 fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     let resolved_dir = find_model_dir(model_dir);

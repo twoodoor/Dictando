@@ -9,6 +9,22 @@ import { isNative } from './lib/bridge';
 const root = createRoot(document.getElementById('root')!);
 
 async function boot() {
+  // Purge any legacy ServiceWorker caches from old builds
+  if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((registrations) => {
+      for (const r of registrations) {
+        r.unregister().catch(() => {});
+      }
+    }).catch(() => {});
+    if ('caches' in window) {
+      caches.keys().then((keys) => {
+        for (const k of keys) {
+          caches.delete(k).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }
+
   // The overlay window is identified by its Tauri window label (most reliable),
   // with a `#overlay` hash fallback for non-native testing.
   let overlay = location.hash === '#overlay';

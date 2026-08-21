@@ -201,11 +201,23 @@ pub fn model_dir(app_data_dir: &Path, model_id: &str) -> PathBuf {
 /// True if a model directory exists and is non-empty.
 pub fn is_installed(app_data_dir: &Path, model_id: &str) -> bool {
     let dir = model_dir(app_data_dir, model_id);
-    dir.is_dir()
-        && std::fs::read_dir(&dir)
-            .map(|mut it| it.next().is_some())
-            .unwrap_or(false)
+    if !dir.is_dir() {
+        return false;
+    }
+    // For whisper-turbo: auto-purge obsolete unquantized 1.6GB model to prevent CPU hangs
+    if model_id == "whisper-turbo" {
+        let old_file = dir.join("ggml-large-v3-turbo.bin");
+        if old_file.exists() && !dir.join("ggml-large-v3-turbo-q5_0.bin").exists() {
+            log::info!("Removing obsolete 1.6GB unquantized whisper-turbo model from {}", old_file.display());
+            let _ = std::fs::remove_file(&old_file);
+            return false;
+        }
+    }
+    std::fs::read_dir(&dir)
+        .map(|mut it| it.next().is_some())
+        .unwrap_or(false)
 }
+
 
 /// Model formats the compiled-in engines can load on this target.
 /// Intel macOS ships only whisper.cpp (ONNX has no x86_64-darwin prebuilt);
