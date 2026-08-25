@@ -48,7 +48,18 @@ pub struct AppSettings {
     pub ai_style_preset: String, // "clean" | "polished" | "concise" | "casual"
     #[serde(default)]
     pub ai_custom_instructions: String,
+    /// Cloud cleanup provider: "gemini" | "grok" | "" (disabled)
+    #[serde(default = "default_gemini")]
+    pub ai_provider: String,
+    /// xAI Grok API key (used when ai_provider = "grok")
+    #[serde(default)]
+    pub grok_api_key: String,
 }
+
+fn default_gemini() -> String {
+    "gemini".to_string()
+}
+
 
 fn default_true() -> bool {
     true
@@ -77,7 +88,7 @@ impl Default for AppSettings {
             active_model_id: default_model_id(),
             microphone_id: "default".into(),
             mute_while_recording: false,
-            audio_feedback: false,
+            audio_feedback: true,
             paste_method: "direct".into(),
             clipboard_handling: "preserve".into(),
             append_trailing_space: false,
@@ -97,6 +108,8 @@ impl Default for AppSettings {
             ai_remove_repetitions: true,
             ai_style_preset: "clean".into(),
             ai_custom_instructions: String::new(),
+            ai_provider: "gemini".into(),
+            grok_api_key: String::new(),
         }
     }
 }

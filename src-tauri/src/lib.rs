@@ -65,6 +65,9 @@ pub struct AppState {
     app_data_dir: PathBuf,
     recording_state: Mutex<String>, // "idle" | "recording" | "transcribing"
     sounds: SoundPlayer,            // discreet start/finish water-drop cues
+    /// Debounce flag: set true on first Pressed, cleared on Released.
+    /// Prevents Windows key-repeat from firing begin_recording multiple times.
+    hotkey_held: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Serialize, Clone)]
@@ -397,21 +400,42 @@ fn finish_recording(app: AppHandle) {
             Ok(raw) if !raw.is_empty() => {
 
                 // Optional AI cleanup pass (opt-in; falls back to raw on failure).
-                let text = if cfg.ai_enhance_enabled && !cfg.gemini_api_key.is_empty() {
-                    let opts = ai::AiEnhanceOptions {
-                        api_key: &cfg.gemini_api_key,
-                        custom_words: &cfg.custom_words,
-                        fix_punctuation: cfg.ai_fix_punctuation,
-                        remove_fillers: cfg.ai_remove_fillers,
-                        remove_repetitions: cfg.ai_remove_repetitions,
-                        style_preset: &cfg.ai_style_preset,
-                        custom_instructions: &cfg.ai_custom_instructions,
+                let text = if cfg.ai_enhance_enabled {
+                    let api_key = if cfg.ai_provider == "grok" {
+                        &cfg.grok_api_key
+                    } else {
+                        &cfg.gemini_api_key
                     };
-                    match ai::enhance(&raw, &opts) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            log::warn!("AI enhance failed, using raw text: {e}");
-                            raw
+                    if api_key.is_empty() && cfg.ai_provider != "" {
+                        // No key configured — still run local cleanup only
+                        let opts = ai::AiEnhanceOptions {
+                            provider: "",
+                            api_key: "",
+                            custom_words: &cfg.custom_words,
+                            fix_punctuation: cfg.ai_fix_punctuation,
+                            remove_fillers: cfg.ai_remove_fillers,
+                            remove_repetitions: cfg.ai_remove_repetitions,
+                            style_preset: &cfg.ai_style_preset,
+                            custom_instructions: &cfg.ai_custom_instructions,
+                        };
+                        ai::local_cleanup(&raw, &opts)
+                    } else {
+                        let opts = ai::AiEnhanceOptions {
+                            provider: &cfg.ai_provider,
+                            api_key,
+                            custom_words: &cfg.custom_words,
+                            fix_punctuation: cfg.ai_fix_punctuation,
+                            remove_fillers: cfg.ai_remove_fillers,
+                            remove_repetitions: cfg.ai_remove_repetitions,
+                            style_preset: &cfg.ai_style_preset,
+                            custom_instructions: &cfg.ai_custom_instructions,
+                        };
+                        match ai::enhance(&raw, &opts) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                log::warn!("AI enhance failed, using raw text: {e}");
+                                raw
+                            }
                         }
                     }
                 } else {
@@ -637,12 +661,21 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, _shortcut, event| {
+                    use std::sync::atomic::Ordering;
                     let app = app.clone();
                     let state = app.state::<AppState>();
                     let push_to_talk = state.settings.get().push_to_talk;
                     let recording = state.recorder.is_recording();
                     match event.state() {
                         ShortcutState::Pressed => {
+                            // Debounce: Windows fires repeated WM_HOTKEY after ~500 ms of
+                            // holding. CAS false→true: only the first press gets through.
+                            if state.hotkey_held.compare_exchange(
+                                false, true,
+                                Ordering::AcqRel, Ordering::Relaxed,
+                            ).is_err() {
+                                return; // key-repeat — ignore
+                            }
                             if push_to_talk {
                                 begin_recording(app);
                             } else if recording {
@@ -652,6 +685,9 @@ pub fn run() {
                             }
                         }
                         ShortcutState::Released => {
+                            // Clear the debounce flag before stopping so a quick
+                            // re-press immediately after release works correctly.
+                            state.hotkey_held.store(false, Ordering::Release);
                             if push_to_talk {
                                 finish_recording(app);
                             }
@@ -702,6 +738,7 @@ pub fn run() {
                 app_data_dir,
                 recording_state: Mutex::new("idle".into()),
                 sounds: SoundPlayer::new(),
+                hotkey_held: std::sync::atomic::AtomicBool::new(false),
             });
 
             if let Some(sc) = shortcuts::parse_shortcut(&snapshot.shortcut) {
