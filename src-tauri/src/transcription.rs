@@ -62,6 +62,11 @@ pub fn language_to_code(lang: &str) -> Option<&'static str> {
     }
 }
 
+/// Whisper inference timeout. Whisper.cpp BLAS kernels block in a single C call
+/// for the entire inference duration and never return to Rust, so abort callbacks
+/// don't help for large models. We use a thread + channel timeout instead.
+const WHISPER_TIMEOUT_SECS: u64 = 15;
+
 /// High-performance direct Whisper engine using greedy decoding & multi-threading.
 pub struct DirectWhisperEngine {
     #[allow(dead_code)]
@@ -85,9 +90,11 @@ impl DirectWhisperEngine {
         Ok(Self { context, state })
     }
 
+    /// Run inference. This call can block for seconds on CPU.
+    /// Call from a dedicated thread; the caller enforces the timeout.
     pub fn transcribe(&mut self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
         // Optimal thread count for whisper.cpp on multi-core CPUs is 4-8.
-        // Higher counts (16-32) cause severe L3 cache thrashing and latency spikes.
+        // Higher counts (16-32) cause L3 cache thrashing across CCX dies.
         let threads = std::thread::available_parallelism()
             .map(|n| n.get() as i32)
             .unwrap_or(4)
@@ -105,15 +112,9 @@ impl DirectWhisperEngine {
         params.set_suppress_nst(true);
         params.set_no_speech_thold(0.6);
         params.set_single_segment(false);
-        // Disable temperature fallback — a single greedy pass is sufficient for
-        // dictation and prevents multi-pass retry loops that cause extreme latency.
+        // Disable temperature fallback — single greedy pass only.
         params.set_temperature(0.0);
         params.set_temperature_inc(0.0);
-
-        // Abort if transcription exceeds 30 seconds (prevents app hang on very
-        // large models running on CPU).
-        let deadline = Instant::now() + std::time::Duration::from_secs(30);
-        params.set_abort_callback_safe(move || Instant::now() > deadline);
 
         self.state
             .full(params, samples)
@@ -131,7 +132,6 @@ impl DirectWhisperEngine {
 
         Ok(full_text)
     }
-
 }
 
 pub enum Engine {
@@ -153,21 +153,26 @@ fn find_ggml_bin(model_dir: &Path) -> Result<PathBuf, String> {
         return Err(format!("no .bin model file in {}", resolved.display()));
     }
 
-    // If multiple .bin files exist, prioritize quantized models over unquantized ones
+    // Prioritize quantized models (q5_0, q4) over unquantized ones.
     bins.sort_by_key(|p| {
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name.contains("q5_0") || name.contains("q4") {
-            0
-        } else {
-            1
-        }
+        if name.contains("q5_0") || name.contains("q4") { 0 } else { 1 }
     });
 
     Ok(bins.remove(0))
 }
 
-
 fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
+    // Reject models that are far too slow for real-time CPU inference.
+    // whisper-medium: ~90s per utterance on Ryzen 5950X.
+    // whisper-large:  ~3-5 minutes per utterance on CPU.
+    if model_id == "whisper-medium" || model_id == "whisper-large" {
+        return Err(format!(
+            "'{model_id}' is too slow for real-time CPU use (typically >60 s/utterance). \
+             Switch to Whisper Tiny, Base, Small, or Turbo for usable performance."
+        ));
+    }
+
     let resolved_dir = find_model_dir(model_dir);
     log::info!("Resolved model directory for '{model_id}': {}", resolved_dir.display());
 
@@ -195,7 +200,7 @@ fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     Err(format!("model '{model_id}' is not supported by this build"))
 }
 
-fn run_transcribe(engine: &mut Engine, samples: &[f32], language: Option<&str>) -> Result<String, String> {
+fn run_transcribe_onnx(engine: &mut Engine, samples: &[f32], language: Option<&str>) -> Result<String, String> {
     match engine {
         #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
         Engine::Onnx(model) => {
@@ -208,7 +213,7 @@ fn run_transcribe(engine: &mut Engine, samples: &[f32], language: Option<&str>) 
                 .map(|r| r.text)
                 .map_err(|e| e.to_string())
         }
-        Engine::Whisper(whisper) => whisper.transcribe(samples, language),
+        Engine::Whisper(_) => Err("internal: whisper engine called via ONNX path".to_string()),
     }
 }
 
@@ -255,12 +260,90 @@ impl Transcriber {
 
     /// Transcribe 16 kHz mono f32 `samples`. Returns cleaned text (empty if it
     /// looks like a hallucination).
+    ///
+    /// For Whisper models inference runs on a background thread and is capped at
+    /// WHISPER_TIMEOUT_SECS. The mutex is NOT held during inference so the app
+    /// remains responsive and new recordings can be queued.
     pub fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
-        let mut guard = self.loaded.lock().unwrap();
-        let loaded = guard.as_mut().ok_or("no model loaded")?;
         let started = Instant::now();
-        let text = run_transcribe(&mut loaded.model, samples, language)?;
-        loaded.last_used = Instant::now();
+
+        // Check which engine type is loaded WITHOUT holding the lock during inference.
+        let is_whisper = {
+            let guard = self.loaded.lock().unwrap();
+            match guard.as_ref() {
+                None => return Err("no model loaded".to_string()),
+                Some(l) => matches!(l.model, Engine::Whisper(_)),
+            }
+        };
+
+        let text = if is_whisper {
+            // ── Whisper path ────────────────────────────────────────────────────
+            // Move the engine OUT of the mutex so the lock is free during inference.
+            // We put it back when the inference thread finishes (or we time out).
+            let (engine, model_id) = {
+                let mut guard = self.loaded.lock().unwrap();
+                let loaded = guard.take().ok_or("no model loaded")?;
+                (loaded.model, loaded.model_id)
+            };
+
+            let samples_owned: Vec<f32> = samples.to_vec();
+            let language_owned: Option<String> = language.map(|s| s.to_string());
+
+            // Channel carries (engine, inference_result) back to this thread.
+            let (tx, rx) = std::sync::mpsc::channel::<(Engine, Result<String, String>)>();
+
+            std::thread::spawn(move || {
+                let mut eng = engine;
+                let lang_ref: Option<&str> = language_owned.as_deref();
+                let result = match &mut eng {
+                    Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref),
+                    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+                    Engine::Onnx(_) => Err("unexpected ONNX in whisper path".to_string()),
+                };
+                // Send engine back unconditionally so it can be restored.
+                let _ = tx.send((eng, result));
+            });
+
+            match rx.recv_timeout(std::time::Duration::from_secs(WHISPER_TIMEOUT_SECS)) {
+                Ok((engine, Ok(text))) => {
+                    // Restore the engine into the mutex.
+                    let mut guard = self.loaded.lock().unwrap();
+                    *guard = Some(Loaded { model: engine, model_id, last_used: Instant::now() });
+                    text
+                }
+                Ok((_, Err(e))) => {
+                    // Inference failed; engine is abandoned, will reload next time.
+                    log::error!("Whisper inference error: {e}");
+                    return Err(e);
+                }
+                Err(_timeout) => {
+                    // The inference thread is still running (we can't kill it).
+                    // Give control back immediately; engine is abandoned and will
+                    // be reloaded on the next use.
+                    log::warn!(
+                        "Whisper inference timed out after {WHISPER_TIMEOUT_SECS}s — \
+                         engine abandoned, will reload next use"
+                    );
+                    return Err(format!(
+                        "Whisper transcription exceeded {WHISPER_TIMEOUT_SECS}s on CPU. \
+                         Use a faster model (Parakeet V3, Whisper Tiny/Base/Turbo)."
+                    ));
+                }
+            }
+        } else {
+            // ── ONNX path — mutex held for the duration (fast, <500 ms) ─────────
+            let mut guard = self.loaded.lock().unwrap();
+            let loaded = guard.as_mut().ok_or("no model loaded")?;
+            run_transcribe_onnx(&mut loaded.model, samples, language)?
+        };
+
+        // Update last_used timestamp.
+        if let Ok(mut guard) = self.loaded.lock() {
+            if let Some(l) = guard.as_mut() {
+                l.last_used = Instant::now();
+            }
+        }
+
         let text = text.trim().to_string();
         log::info!(
             "Transcribed {:.1}s audio in {} ms -> {} chars",
@@ -294,4 +377,3 @@ impl Default for Transcriber {
         Self::new()
     }
 }
-
