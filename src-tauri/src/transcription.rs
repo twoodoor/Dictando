@@ -11,6 +11,8 @@ use whisper_rs::{
 };
 
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+use transcribe_rs::onnx::gigaam::GigaAMModel;
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 use transcribe_rs::onnx::moonshine::{MoonshineModel, MoonshineVariant};
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
 use transcribe_rs::onnx::parakeet::ParakeetModel;
@@ -194,6 +196,10 @@ fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     } else if model_id.starts_with("sense-voice") {
         return Ok(Engine::Onnx(Box::new(
             SenseVoiceModel::load(&resolved_dir, &Quantization::Int8).map_err(|e| e.to_string())?,
+        )));
+    } else if model_id.starts_with("giga-am") || model_id.starts_with("gigaam") {
+        return Ok(Engine::Onnx(Box::new(
+            GigaAMModel::load(&resolved_dir, &Quantization::Int8).map_err(|e| e.to_string())?,
         )));
     }
 

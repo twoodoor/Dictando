@@ -57,6 +57,7 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 | # | Task | Notes | Status |
 |---|---|---|---|
 | C1 | **SenseVoice Small** (ONNX) — ~35 ms, 50+ langs, non-autoregressive | Already in catalog + engine; via `transcribe-rs` | `[x]` |
+| C5 | **GigaAM v3** (ONNX) — ~60 ms, ultra-fast Russian & Slavic engine | Added to catalog + engine; via `transcribe-rs` | `[x]` |
 | C2 | **Moonshine Tiny** (ONNX) — ~55 ms, English-only, 27 M params | Engine dispatch ready; needs hosted tar.gz | `[/]` |
 | C3 | **Moonshine Base** (ONNX) — ~107 ms, English, higher accuracy | Already in catalog + engine | `[x]` |
 | C4 | Model catalog tier labels (? Lightning / ?? Balanced) in descriptions | `models.rs` | `[x]` |
@@ -105,5 +106,6 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 ## Devlog
 - **2026-08-25 (Phase A)**: Audio feedback fixed — warm WASAPI stream + migration v0?v1 forces it on for existing users. 40+ filler words. Duplicate phrase detection. Standalone-I caps. Grok 4.1 Fast added. Hotkey debounce. 6 tests passing. ROADMAP.md created.
 - **2026-08-25 (Decisions)**: Owner selected: two-phase Wispr-style paste (B1), keep Ctrl+Space + conflict badge (B3), SenseVoice first then Moonshine Tiny (C1+C2), both Gemini+Grok available.
+
 
 
