@@ -81,6 +81,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
   const [appVersion, setAppVersion] = useState('0.3.3');
+  const [hotkeyConflict, setHotkeyConflict] = useState(false);
 
   const handleCheckUpdate = async () => {
     setCheckingUpdate(true);
@@ -159,6 +160,28 @@ export function SettingsView({ user }: { user: User | null }) {
     ).catch(() => {});
   }, []);
 
+  // Hotkey conflict detection — query on mount and listen for live events.
+  useEffect(() => {
+    if (!isNative) return;
+    // Query current conflict state.
+    backend.getHotkeyStatus().then((conflict: boolean) => {
+      setHotkeyConflict(conflict);
+    }).catch(() => {});
+    // Listen for live conflict events (fires when shortcut changes or at startup).
+    let unlisten: (() => void) | undefined;
+    import('@tauri-apps/api/event').then(({ listen }) => {
+      listen<boolean>('hotkey-conflict', (e) => {
+        setHotkeyConflict(e.payload);
+        if (e.payload) {
+          import('sonner').then(({ toast }) => {
+            toast.warning('Hotkey conflict — another app owns this combo. Change your shortcut in Settings.', { duration: 6000 });
+          });
+        }
+      }).then((fn) => { unlisten = fn; });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
   // Microphones.
   useEffect(() => {
     if (isNative) { backend.listMicrophones().then(setMics).catch(() => {}); return; }
@@ -214,7 +237,17 @@ export function SettingsView({ user }: { user: User | null }) {
         <h1 className="font-display text-3xl text-fg mb-6">Settings</h1>
 
         <Section title="Dictation">
-          <Row title="Hotkey" desc={pushToTalk ? 'Hold to record, release to transcribe' : 'Press to start, press again to stop'}>
+          <Row
+            title={<span className="flex items-center gap-1.5">
+              Hotkey
+              {hotkeyConflict && (
+                <span title="This shortcut is already claimed by another app — change it to restore dictation" className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-[10px] font-semibold">
+                  ⚠ Conflict
+                </span>
+              )}
+            </span> as any}
+            desc={pushToTalk ? 'Hold to record, release to transcribe' : 'Press to start, press again to stop'}
+          >
             <div className="flex items-center gap-2">
               <div className="flex gap-1 min-h-[28px] items-center">
                 {shownKeys.length > 0 ? shownKeys.map((k) => (

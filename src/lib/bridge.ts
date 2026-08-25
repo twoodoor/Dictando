@@ -170,6 +170,9 @@ export const backend = {
   accessibilityStatus: () => invoke<boolean>('accessibility_status'),
   requestAccessibility: () => invoke<boolean>('request_accessibility'),
   openAccessibilitySettings: () => invoke<void>('open_accessibility_settings'),
+
+  // Hotkey conflict detection
+  getHotkeyStatus: () => invoke<boolean>('get_hotkey_status'),
 };
 
 // ---------------------------------------------------------------------------

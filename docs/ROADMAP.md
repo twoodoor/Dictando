@@ -1,4 +1,4 @@
-ï»¿# Mumblr â€” Implementation Roadmap
+# Mumblr — Implementation Roadmap
 <!-- AUTO-UPDATED: agent must keep this file current as work progresses -->
 <!-- Last updated: 2026-08-25 -->
 
@@ -10,45 +10,45 @@
 
 ---
 
-## ðŸ§­ North Star
+## ?? North Star
 
 Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
-- **Zero perceived latency** â€” text appears the instant you release the key
-- **Reliable hotkeys** â€” the key combo is *always* caught
-- **Stellar audio feedback** â€” you always know the app heard you
-- **Clean output** â€” fillers gone, punctuation right, "I" capitalised, no repeats
+- **Zero perceived latency** — text appears the instant you release the key
+- **Reliable hotkeys** — the key combo is *always* caught
+- **Stellar audio feedback** — you always know the app heard you
+- **Clean output** — fillers gone, punctuation right, "I" capitalised, no repeats
 
 ---
 
-## Phase A â€” Foundation Fixes âœ… DONE (2026-08-25)
+## Phase A — Foundation Fixes ? DONE (2026-08-25)
 
 | # | Task | File | Status |
 |---|---|---|---|
 | A1 | Audio feedback **on by default** | `settings.rs` | `[x]` |
-| A2 | Settings migration v0â†’v1 (force `audioFeedback=true` for ALL existing users on upgrade) | `settings.rs` | `[x]` |
-| A3 | **Warm-stream sound** â€” keep WASAPI stream alive 5 s after last cue, eliminates 50â€“300 ms open latency on Windows | `sound.rs` | `[x]` |
-| A4 | Local cleanup overhaul â€” 40+ fillers, 2â€“5 word duplicate phrase detection, standalone-I caps, custom vocab preservation | `ai.rs` | `[x]` |
+| A2 | Settings migration v0?v1 (force `audioFeedback=true` for ALL existing users on upgrade) | `settings.rs` | `[x]` |
+| A3 | **Warm-stream sound** — keep WASAPI stream alive 5 s after last cue, eliminates 50–300 ms open latency on Windows | `sound.rs` | `[x]` |
+| A4 | Local cleanup overhaul — 40+ fillers, 2–5 word duplicate phrase detection, standalone-I caps, custom vocab preservation | `ai.rs` | `[x]` |
 | A5 | **Grok 4.1 Fast** as second cloud cleanup provider (`ai_provider` + `grok_api_key` settings fields) | `ai.rs`, `settings.rs` | `[x]` |
-| A6 | Hotkey **key-repeat debounce** (`hotkey_held: AtomicBool`) â€” stops Windows 30 Hz repeat from spamming `begin_recording` | `lib.rs` | `[x]` |
+| A6 | Hotkey **key-repeat debounce** (`hotkey_held: AtomicBool`) — stops Windows 30 Hz repeat from spamming `begin_recording` | `lib.rs` | `[x]` |
 
 ---
 
-## Phase B â€” Latency & Reliability ðŸ”„ NEXT UP
+## Phase B — Latency & Reliability ?? NEXT UP
 
 > **Owner decisions locked in:**
-> - Two-phase paste: Wispr Flow style â€” instant local paste â†’ silent background AI re-injection
+> - Two-phase paste: Wispr Flow style — instant local paste ? silent background AI re-injection
 > - Hotkey: keep Ctrl+Space + add conflict detection UI warning badge
 
 | # | Task | File(s) | Status |
 |---|---|---|---|
-| B1 | **Two-phase paste** â€” paste local-cleaned text instantly on key-up; `tokio::spawn` fires cloud call; if result differs, re-inject (select pasted chars + replace) | `lib.rs`, `inject.rs` | `[~]` |
-| B2 | **Parallel cloud cleanup** â€” move `cloud_enhance` from blocking thread to `tokio::spawn`; surface result via channel | `lib.rs`, `ai.rs` | `[~]` |
-| B3 | **Hotkey conflict detection** â€” check `RegisterHotKey` return value, emit `hotkey-conflict` event, show warning badge in Settings | `shortcuts.rs`, `lib.rs`, `SettingsView.tsx` | `[~]` |
-| B4 | **Overlay appears immediately** â€” emit `recording` state synchronously before spawning transcription thread | `lib.rs` | `[~]` |
+| B1 | **Two-phase paste** — paste local-cleaned text instantly on key-up; `tokio::spawn` fires cloud call; if result differs, re-inject (select pasted chars + replace) | `lib.rs`, `inject.rs` | `[x]` |
+| B2 | **Parallel cloud cleanup** — move `cloud_enhance` from blocking thread to `tokio::spawn`; surface result via channel | `lib.rs`, `ai.rs` | `[x]` |
+| B3 | **Hotkey conflict detection** — check `RegisterHotKey` return value, emit `hotkey-conflict` event, show warning badge in Settings | `shortcuts.rs`, `lib.rs`, `SettingsView.tsx` | `[x]` |
+| B4 | **Overlay appears immediately** — emit `recording` state synchronously before spawning transcription thread | `lib.rs` | `[~]` |
 
 ---
 
-## Phase C â€” Model Expansion ðŸ”¬ PLANNED
+## Phase C — Model Expansion ?? PLANNED
 
 > **Owner decisions locked in:**
 > - SenseVoice Small first (multilingual), then Moonshine Tiny
@@ -56,14 +56,14 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 
 | # | Task | Notes | Status |
 |---|---|---|---|
-| C1 | **SenseVoice Small** (ONNX) â€” ~35 ms, 50+ langs, non-autoregressive | via sherpa-onnx Rust bindings | `[~]` |
-| C2 | **Moonshine Tiny** (ONNX) â€” ~55 ms, English-only, 27 M params | Direct ORT (same as Parakeet) | `[~]` |
-| C3 | **Moonshine Base** (ONNX) â€” ~107 ms, English, higher accuracy | | `[ ]` |
+| C1 | **SenseVoice Small** (ONNX) — ~35 ms, 50+ langs, non-autoregressive | via sherpa-onnx Rust bindings | `[~]` |
+| C2 | **Moonshine Tiny** (ONNX) — ~55 ms, English-only, 27 M params | Direct ORT (same as Parakeet) | `[~]` |
+| C3 | **Moonshine Base** (ONNX) — ~107 ms, English, higher accuracy | | `[ ]` |
 | C4 | Model catalog tier labels (Lightning / Balanced / Quality / Multilingual) | `ModelsView.tsx` | `[ ]` |
 
 ---
 
-## Phase D â€” Settings UI ðŸŽ¨ PLANNED
+## Phase D — Settings UI ?? PLANNED
 
 | # | Task | Status |
 |---|---|---|
@@ -75,7 +75,7 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 
 ---
 
-## ðŸ”¬ Research Summary (August 2026)
+## ?? Research Summary (August 2026)
 
 ### Local ASR Model Speeds (5 s audio clip, CPU)
 | Model | Latency | Langs | Size | Notes |
@@ -83,25 +83,25 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 | **SenseVoice Small** | ~35 ms | 50+ | 230 MB | Non-autoregressive, parallel decode |
 | **Moonshine Tiny** | ~55 ms | English | 55 MB | Variable-length enc, no 30s padding |
 | **Moonshine Base** | ~107 ms | English | 200 MB | Better accuracy |
-| Parakeet TDT v3 *(current default)* | ~150â€“250 ms | 25 | 280 MB | Keep as multilingual default |
+| Parakeet TDT v3 *(current default)* | ~150–250 ms | 25 | 280 MB | Keep as multilingual default |
 | Whisper Turbo (GGML) | ~250 ms | 100 | 1.6 GB | Already in catalog |
 
 ### Cloud Cleanup Cost (per call, ~200 tokens in + out)
 | Provider | Model | Cost/call | Latency | Notes |
 |---|---|---|---|---|
-| **Gemini** *(current)* | Flash-Lite | ~$0.00009 | 600â€“1000 ms | Cheapest |
-| **Grok** | 4.1 Fast | ~$0.00013 | 300â€“500 ms | Fastest cloud option |
-| GPT-4o mini | â€” | ~$0.00014 | 500â€“800 ms | |
-| Claude | Haiku 4.5 | ~$0.00115 | 400â€“700 ms | 10Ã— pricier |
+| **Gemini** *(current)* | Flash-Lite | ~$0.00009 | 600–1000 ms | Cheapest |
+| **Grok** | 4.1 Fast | ~$0.00013 | 300–500 ms | Fastest cloud option |
+| GPT-4o mini | — | ~$0.00014 | 500–800 ms | |
+| Claude | Haiku 4.5 | ~$0.00115 | 400–700 ms | 10× pricier |
 
 ### Why Wispr Flow feels instant
-1. **Paste immediately** with local cleanup â€” AI polish replaces text silently ~500 ms later
-2. Non-autoregressive models â€” no per-token decode wait
-3. Key-up is the hard stop â€” no VAD silence timeout adds latency
+1. **Paste immediately** with local cleanup — AI polish replaces text silently ~500 ms later
+2. Non-autoregressive models — no per-token decode wait
+3. Key-up is the hard stop — no VAD silence timeout adds latency
 4. Audio capture starts on key-down, not key-up (pre-buffering)
 
 ---
 
 ## Devlog
-- **2026-08-25 (Phase A)**: Audio feedback fixed â€” warm WASAPI stream + migration v0â†’v1 forces it on for existing users. 40+ filler words. Duplicate phrase detection. Standalone-I caps. Grok 4.1 Fast added. Hotkey debounce. 6 tests passing. ROADMAP.md created.
+- **2026-08-25 (Phase A)**: Audio feedback fixed — warm WASAPI stream + migration v0?v1 forces it on for existing users. 40+ filler words. Duplicate phrase detection. Standalone-I caps. Grok 4.1 Fast added. Hotkey debounce. 6 tests passing. ROADMAP.md created.
 - **2026-08-25 (Decisions)**: Owner selected: two-phase Wispr-style paste (B1), keep Ctrl+Space + conflict badge (B3), SenseVoice first then Moonshine Tiny (C1+C2), both Gemini+Grok available.

@@ -68,6 +68,9 @@ pub struct AppState {
     /// Debounce flag: set true on first Pressed, cleared on Released.
     /// Prevents Windows key-repeat from firing begin_recording multiple times.
     hotkey_held: std::sync::atomic::AtomicBool,
+    /// Set true if the last shortcut registration call was rejected by the OS
+    /// (another app owns the combo). Surfaced to the Settings UI as a warning.
+    pub hotkey_conflict: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Serialize, Clone)]
@@ -538,6 +541,12 @@ fn get_settings(state: State<AppState>) -> AppSettings {
 }
 
 #[tauri::command]
+fn get_hotkey_status(state: State<AppState>) -> bool {
+    // Returns true if the hotkey is currently in conflict (not registered).
+    state.hotkey_conflict.load(std::sync::atomic::Ordering::Acquire)
+}
+
+#[tauri::command]
 fn update_settings(
     app: AppHandle,
     state: State<AppState>,
@@ -545,7 +554,9 @@ fn update_settings(
 ) -> Result<AppSettings, String> {
     let merged = state.settings.update(patch)?;
     if let Some(sc) = shortcuts::parse_shortcut(&merged.shortcut) {
-        shortcuts::reregister(&app, &sc);
+        let ok = shortcuts::reregister(&app, &sc);
+        state.hotkey_conflict.store(!ok, std::sync::atomic::Ordering::Release);
+        let _ = app.emit("hotkey-conflict", !ok);
     }
     sync_autostart(&app, merged.launch_on_startup);
     Ok(merged)
@@ -786,10 +797,19 @@ pub fn run() {
                 recording_state: Mutex::new("idle".into()),
                 sounds: SoundPlayer::new(),
                 hotkey_held: std::sync::atomic::AtomicBool::new(false),
+                hotkey_conflict: std::sync::atomic::AtomicBool::new(false),
             });
 
             if let Some(sc) = shortcuts::parse_shortcut(&snapshot.shortcut) {
-                shortcuts::reregister(app.handle(), &sc);
+                let ok = shortcuts::reregister(app.handle(), &sc);
+                if !ok {
+                    // Emit after a short delay so the frontend has time to load.
+                    let app2 = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(1500));
+                        let _ = app2.emit("hotkey-conflict", true);
+                    });
+                }
             }
 
             // System tray — rich context menu with submenus.
@@ -821,6 +841,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             update_settings,
+            get_hotkey_status,
             get_status,
             start_recording,
             stop_recording,
