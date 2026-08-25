@@ -76,6 +76,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [aiCustomInstructions, setAiCustomInstructions] = useState('');
   const [aiProvider, setAiProvider] = useState('gemini');
   const [grokKey, setGrokKey] = useState('');
+  const [smartRouting, setSmartRouting] = useState(true);
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [pressed, setPressed] = useState<string[]>([]);
@@ -142,6 +143,7 @@ export function SettingsView({ user }: { user: User | null }) {
         setAiCustomInstructions(s.aiCustomInstructions || '');
         setAiProvider(s.aiProvider || 'gemini');
         setGrokKey(s.grokApiKey || '');
+        setSmartRouting(s.smartModelRouting ?? true);
       }).catch(() => {});
       return;
     }
@@ -276,6 +278,11 @@ export function SettingsView({ user }: { user: User | null }) {
               {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
             </select>
           </Row>
+          {isNative && (
+            <Row title="⚡ Smart model routing" desc="Auto-pick the fastest installed model for your language (e.g. SenseVoice for English/CJK, Parakeet for European)">
+              <Toggle checked={smartRouting} onChange={(v) => { setSmartRouting(v); save('smartModelRouting', v); }} />
+            </Row>
+          )}
         </Section>
 
         <Section title="Audio">

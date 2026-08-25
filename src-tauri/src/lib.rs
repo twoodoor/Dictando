@@ -391,8 +391,26 @@ fn finish_recording(app: AppHandle) {
         log::info!("captured {} samples (~{:.1}s)", samples.len(), samples.len() as f32 / 16_000.0);
         set_recording_state(&app, "transcribing");
 
-        let model_dir = models::model_dir(&state.app_data_dir, &cfg.active_model_id);
-        if let Err(e) = state.transcriber.ensure_loaded(&cfg.active_model_id, &model_dir) {
+        let lang_code = transcription::language_to_code(&cfg.language);
+
+        // ── Smart model routing ─────────────────────────────────────────
+        // If enabled, pick the fastest installed model for this language.
+        let effective_model_id = if cfg.smart_model_routing {
+            models::best_model_for_language(&state.app_data_dir, lang_code)
+                .map(|id| id.to_string())
+                .unwrap_or_else(|| cfg.active_model_id.clone())
+        } else {
+            cfg.active_model_id.clone()
+        };
+        if effective_model_id != cfg.active_model_id {
+            log::info!(
+                "smart routing: using '{}' instead of '{}' for lang {:?}",
+                effective_model_id, cfg.active_model_id, lang_code
+            );
+        }
+
+        let model_dir = models::model_dir(&state.app_data_dir, &effective_model_id);
+        if let Err(e) = state.transcriber.ensure_loaded(&effective_model_id, &model_dir) {
             log::error!("{e}");
             set_recording_state(&app, "idle");
             return;

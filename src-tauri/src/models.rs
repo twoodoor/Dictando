@@ -45,6 +45,9 @@ pub struct CatalogEntry {
     pub download_url: &'static str,
     /// Expected SHA-256 of the downloaded artifact (Phase 2 verification).
     pub sha256: &'static str,
+    /// ISO-639-1 codes this model can transcribe. Empty = all languages
+    /// (e.g. Whisper). Used by smart routing to pick the fastest model.
+    pub supported_lang_codes: &'static [&'static str],
 }
 
 /// The static model catalog.
@@ -66,6 +69,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
         sha256: "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77",
+        supported_lang_codes: &[
+            "en", "es", "fr", "de", "it", "pt", "ro", "nl", "ru", "pl", "uk",
+            "cs", "sv", "da", "fi", "el", "hi", "mr", "te", "ta", "ka", "be",
+            "hr", "hu", "ca",
+        ],
     },
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v2",
@@ -79,6 +87,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/parakeet-v2-int8.tar.gz",
         sha256: "ac9b9429984dd565b25097337a887bb7f0f8ac393573661c651f0e7d31563991",
+        supported_lang_codes: &["en"],
     },
     CatalogEntry {
         id: "moonshine-base",
@@ -92,6 +101,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/moonshine-base.tar.gz",
         sha256: "04bf6ab012cfceebd4ac7cf88c1b31d027bbdd3cd704649b692e2e935236b7e8",
+        supported_lang_codes: &["en"],
     },
     CatalogEntry {
         id: "sense-voice-int8",
@@ -105,6 +115,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/sense-voice-int8.tar.gz",
         sha256: "171d611fe5d353a50bbb741b6f3ef42559b1565685684e9aa888ef563ba3e8a4",
+        supported_lang_codes: &["en", "zh", "ja", "ko", "yue"],
     },
     CatalogEntry {
         id: "whisper-tiny",
@@ -116,9 +127,9 @@ pub const CATALOG: &[CatalogEntry] = &[
         speed: 0.99,
         format: "ggml",
         supports_translation: true,
-        // sha256 intentionally empty → download verification is skipped (Hugging Face source).
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
         sha256: "",
+        supported_lang_codes: &[], // all languages
     },
     CatalogEntry {
         id: "whisper-base",
@@ -132,6 +143,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: true,
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
         sha256: "",
+        supported_lang_codes: &[], // all languages
     },
     CatalogEntry {
         id: "whisper-small",
@@ -145,6 +157,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: true,
         download_url: "https://blob.handy.computer/ggml-small.bin",
         sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+        supported_lang_codes: &[], // all languages
     },
     CatalogEntry {
         id: "whisper-medium",
@@ -158,6 +171,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: true,
         download_url: "https://blob.handy.computer/whisper-medium-q4_1.bin",
         sha256: "79283fc1f9fe12ca3248543fbd54b73292164d8df5a16e095e2bceeaaabddf57",
+        supported_lang_codes: &[], // all languages
     },
     CatalogEntry {
         id: "whisper-large",
@@ -171,6 +185,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: true,
         download_url: "https://blob.handy.computer/ggml-large-v3-q5_0.bin",
         sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
+        supported_lang_codes: &[], // all languages
     },
     CatalogEntry {
         id: "whisper-turbo",
@@ -184,6 +199,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: true,
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         sha256: "",
+        supported_lang_codes: &[], // all languages
     },
 
 ];
@@ -255,6 +271,51 @@ pub fn list(app_data_dir: &Path) -> Vec<ModelInfo> {
 
 pub fn catalog_entry(model_id: &str) -> Option<&'static CatalogEntry> {
     CATALOG.iter().find(|e| e.id == model_id)
+}
+
+/// Pick the fastest installed model that supports `lang_code`.
+///
+/// * `lang_code == None` → auto-detect mode: prefer the fastest multilingual model.
+/// * `lang_code == Some("en")` → prefer the fastest model with English support.
+/// * `lang_code == Some("es")` → prefer the fastest model supporting Spanish, etc.
+///
+/// Returns `None` if no installed model can handle the language, so the caller
+/// should fall back to the user's manually selected model.
+pub fn best_model_for_language(app_data_dir: &Path, lang_code: Option<&str>) -> Option<&'static str> {
+    let formats = supported_formats();
+
+    fn supports(entry: &CatalogEntry, lang: Option<&str>) -> bool {
+        // Empty lang_codes → universal (Whisper), supports everything.
+        if entry.supported_lang_codes.is_empty() {
+            return true;
+        }
+        match lang {
+            // Auto-detect: model must be multilingual (>1 lang).
+            None => entry.supported_lang_codes.len() > 1,
+            Some(code) => entry.supported_lang_codes.contains(&code),
+        }
+    }
+
+    let mut candidates: Vec<&CatalogEntry> = CATALOG
+        .iter()
+        .filter(|e| formats.contains(&e.format))
+        .filter(|e| is_installed(app_data_dir, e.id))
+        .filter(|e| supports(e, lang_code))
+        .collect();
+
+    // Sort by speed descending (fastest first), tie-break by accuracy descending.
+    candidates.sort_by(|a, b| {
+        b.speed
+            .partial_cmp(&a.speed)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(
+                b.accuracy
+                    .partial_cmp(&a.accuracy)
+                    .unwrap_or(std::cmp::Ordering::Equal),
+            )
+    });
+
+    candidates.first().map(|e| e.id)
 }
 
 // ---------------------------------------------------------------------------

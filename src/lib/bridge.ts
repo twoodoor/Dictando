@@ -65,6 +65,7 @@ export interface AppSettings {
   aiCustomInstructions: string;
   aiProvider: string;         // "gemini" | "grok" | ""
   grokApiKey: string;
+  smartModelRouting: boolean;
 }
 
 export interface TranscriptionResult {

@@ -54,6 +54,10 @@ pub struct AppSettings {
     /// xAI Grok API key (used when ai_provider = "grok")
     #[serde(default)]
     pub grok_api_key: String,
+    /// When true, automatically pick the fastest installed model that supports
+    /// the selected language instead of always using `active_model_id`.
+    #[serde(default = "default_true")]
+    pub smart_model_routing: bool,
     /// Schema version — bumped when a migration is needed.
     /// Version 0 = before audio-feedback-on-by-default (2026-08-25).
     /// Version 1 = audio_feedback forced true on upgrade.
@@ -115,6 +119,7 @@ impl Default for AppSettings {
             ai_custom_instructions: String::new(),
             ai_provider: "gemini".into(),
             grok_api_key: String::new(),
+            smart_model_routing: true,
             settings_version: 1,
         }
     }
