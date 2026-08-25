@@ -30,7 +30,7 @@ export function Sidebar({
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
-  const [version, setVersion] = useState('0.3.3');
+  const [version, setVersion] = useState('0.3.4');
 
   useEffect(() => {
     if (isNative) {

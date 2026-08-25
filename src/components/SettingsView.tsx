@@ -80,7 +80,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.3.3');
+  const [appVersion, setAppVersion] = useState('0.3.4');
   const [hotkeyConflict, setHotkeyConflict] = useState(false);
 
   const handleCheckUpdate = async () => {
@@ -325,7 +325,7 @@ export function SettingsView({ user }: { user: User | null }) {
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
             </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.3'}`}>
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.4'}`}>
               {updateInfo ? (
                 <button
                   disabled={installingUpdate}
