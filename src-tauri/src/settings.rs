@@ -54,6 +54,11 @@ pub struct AppSettings {
     /// xAI Grok API key (used when ai_provider = "grok")
     #[serde(default)]
     pub grok_api_key: String,
+    /// Schema version — bumped when a migration is needed.
+    /// Version 0 = before audio-feedback-on-by-default (2026-08-25).
+    /// Version 1 = audio_feedback forced true on upgrade.
+    #[serde(default)]
+    pub settings_version: u32,
 }
 
 fn default_gemini() -> String {
@@ -110,7 +115,18 @@ impl Default for AppSettings {
             ai_custom_instructions: String::new(),
             ai_provider: "gemini".into(),
             grok_api_key: String::new(),
+            settings_version: 1,
         }
+    }
+}
+
+/// Apply one-time migrations based on the stored `settings_version`.
+/// Mutates in place; caller must persist afterwards.
+fn migrate(s: &mut AppSettings) {
+    // v0 → v1: audio feedback was off by default; force it on for all users.
+    if s.settings_version < 1 {
+        s.audio_feedback = true;
+        s.settings_version = 1;
     }
 }
 
@@ -122,12 +138,13 @@ pub struct SettingsStore {
 
 impl SettingsStore {
     /// Load from `path`, falling back to defaults (and writing them) if missing
-    /// or corrupt.
+    /// or corrupt.  Applies schema migrations before returning.
     pub fn load(path: PathBuf) -> Self {
-        let settings = fs::read_to_string(&path)
+        let mut settings = fs::read_to_string(&path)
             .ok()
             .and_then(|s| serde_json::from_str::<AppSettings>(&s).ok())
             .unwrap_or_default();
+        migrate(&mut settings);
         let store = Self { path, inner: Mutex::new(settings) };
         let _ = store.persist();
         store

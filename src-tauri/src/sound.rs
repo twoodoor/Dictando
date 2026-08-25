@@ -1,4 +1,4 @@
-//! Discreet water-drop cues for record start / finish.
+﻿//! Discreet water-drop cues for record start / finish.
 //!
 //! The sounds are **synthesized** at startup — no asset files ship with the app.
 //! Each cue is a short, decaying sine "drop" whose pitch glides *upward* over
@@ -8,10 +8,14 @@
 //! - **Start** — a single rising drop (C5→G5): "listening".
 //! - **Finish** — two drops, high then resolving lower (G5→ then C5): "got it".
 //!
-//! rodio's output stream keeps a background WASAPI mixing thread alive for the
-//! stream's lifetime — on Windows this consumes measurable CPU even when idle.
-//! To avoid burning ~30% CPU at rest, the stream is created **on-demand** for
-//! each cue and dropped immediately after playback finishes.
+//! ## Stream lifecycle
+//!
+//! Opening a WASAPI stream on-demand takes 50–300 ms on Windows, which means
+//! the very first cue after a long idle could be delayed or missed entirely.
+//! To avoid this, we keep the output stream **warm** for 5 seconds after the
+//! last cue and only drop it once the idle timeout expires. This means:
+//!   - Zero open-latency during a dictation session (stream already open).
+//!   - Zero CPU burn during long idle periods (stream closes after 5 s).
 //!
 //! A dedicated thread serialises play requests so the main app never blocks.
 //! Playback is best-effort: if no output device is available the cues are
@@ -19,11 +23,16 @@
 
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use rodio::buffer::SamplesBuffer;
 use rodio::Source;
 
 const SAMPLE_RATE: u32 = 44_100;
+/// Keep the WASAPI stream warm for this long after the last cue.
+/// Eliminates open-latency for typical push-to-talk usage (multiple
+/// dictations within a session). Stream closes after prolonged idle.
+const STREAM_KEEPALIVE: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy)]
 enum Cue {
@@ -75,38 +84,99 @@ impl Default for SoundPlayer {
     }
 }
 
-/// The audio thread: open an output stream on-demand for each cue, play the
-/// samples, wait for playback to finish, then drop the stream so the WASAPI
-/// mixing thread doesn't keep running and burning CPU while idle.
+/// Warm-stream audio thread.
+///
+/// Opens the output stream on the first cue, then holds it open for
+/// `STREAM_KEEPALIVE` after the last cue. This eliminates per-cue WASAPI
+/// open-latency (~50–300 ms on Windows) at the cost of holding the mixer
+/// thread alive during a session — acceptable because dictation is active use.
 fn run(rx: Receiver<Cue>, start: Vec<f32>, finish: Vec<f32>) {
-    while let Ok(cue) = rx.recv() {
-        let samples = match cue {
-            Cue::Start => &start,
-            Cue::Finish => &finish,
-        };
-        // Open output stream just for this cue.
-        let (_stream, handle) = match rodio::OutputStream::try_default() {
-            Ok(pair) => pair,
-            Err(e) => {
-                log::warn!("audio cues disabled (no output device): {e}");
-                continue;
+    // None = stream currently closed (idle).
+    let mut stream_handle: Option<(rodio::OutputStream, rodio::OutputStreamHandle)> = None;
+    let mut last_cue_at: Option<Instant> = None;
+
+    loop {
+        // Determine recv timeout: if stream is warm, wake up to check keepalive.
+        let timeout = match last_cue_at {
+            Some(t) => {
+                let elapsed = t.elapsed();
+                if elapsed >= STREAM_KEEPALIVE {
+                    // Keepalive expired — drop the stream and wait indefinitely.
+                    stream_handle = None;
+                    last_cue_at = None;
+                    match rx.recv() {
+                        Ok(cue) => {
+                            handle_cue(cue, &start, &finish, &mut stream_handle);
+                            last_cue_at = Some(Instant::now());
+                            continue;
+                        }
+                        Err(_) => return, // sender dropped; thread exit
+                    }
+                } else {
+                    STREAM_KEEPALIVE - elapsed
+                }
+            }
+            None => {
+                // Fully idle — block until next cue arrives.
+                match rx.recv() {
+                    Ok(cue) => {
+                        handle_cue(cue, &start, &finish, &mut stream_handle);
+                        last_cue_at = Some(Instant::now());
+                        continue;
+                    }
+                    Err(_) => return,
+                }
             }
         };
-        let source = SamplesBuffer::new(1, SAMPLE_RATE, samples.clone());
-        let duration = source.total_duration();
-        if let Err(e) = handle.play_raw(source) {
-            log::warn!("failed to play audio cue: {e}");
-            continue;
+
+        // Stream is warm — recv with timeout so we can close it when idle.
+        match rx.recv_timeout(timeout) {
+            Ok(cue) => {
+                handle_cue(cue, &start, &finish, &mut stream_handle);
+                last_cue_at = Some(Instant::now());
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Keepalive expired — drop stream next iteration.
+                stream_handle = None;
+                last_cue_at = None;
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
         }
-        // Wait for playback to finish before dropping the stream.
-        if let Some(d) = duration {
-            std::thread::sleep(d + std::time::Duration::from_millis(50));
-        } else {
-            // Fallback: generous max cue length.
-            std::thread::sleep(std::time::Duration::from_millis(300));
-        }
-        // _stream and handle are dropped here → WASAPI thread exits.
     }
+}
+
+/// Play a cue on the (possibly freshly opened) stream.
+fn handle_cue(
+    cue: Cue,
+    start: &[f32],
+    finish: &[f32],
+    stream_handle: &mut Option<(rodio::OutputStream, rodio::OutputStreamHandle)>,
+) {
+    // Ensure stream is open.
+    if stream_handle.is_none() {
+        match rodio::OutputStream::try_default() {
+            Ok(pair) => *stream_handle = Some(pair),
+            Err(e) => {
+                log::warn!("audio cues: cannot open output stream: {e}");
+                return;
+            }
+        }
+    }
+
+    let handle = stream_handle.as_ref().map(|(_, h)| h).unwrap();
+    let samples: Vec<f32> = match cue {
+        Cue::Start  => start.to_vec(),
+        Cue::Finish => finish.to_vec(),
+    };
+    let source = SamplesBuffer::new(1, SAMPLE_RATE, samples);
+    if let Err(e) = handle.play_raw(source) {
+        log::warn!("failed to play audio cue: {e}");
+        // Stream may be broken — drop it so it's re-opened next time.
+        *stream_handle = None;
+    }
+    // Note: we do NOT sleep here. The warm-stream approach means the WASAPI
+    // mixing thread keeps the buffer alive. We return immediately so the sfx
+    // thread is ready for the next cue without any blocking.
 }
 
 /// One decaying "drop": a sine gliding from `f0` up to `f1` (exponential pitch
@@ -127,14 +197,14 @@ fn render_drop(f0: f32, f1: f32, dur: f32, decay: f32, amp: f32, out: &mut Vec<f
     }
 }
 
-/// Start cue: a single soft rising drop (C5 → G5). Feels like an inhale.
+/// Start cue: a single soft rising drop (C5 -> G5). Feels like an inhale.
 fn render_start() -> Vec<f32> {
     let mut out = Vec::new();
     render_drop(523.25, 784.0, 0.12, 34.0, 0.25, &mut out);
     out
 }
 
-/// Finish cue: a quick high tap then a lower, resolving drop — a two-note
+/// Finish cue: a quick high tap then a lower, resolving drop -- a two-note
 /// "call and answer" that lands *back home*, so it's clearly distinct from the
 /// single rising start cue even with your eyes closed.
 fn render_finish() -> Vec<f32> {
@@ -145,4 +215,3 @@ fn render_finish() -> Vec<f32> {
     render_drop(523.25, 660.0, 0.12, 32.0, 0.26, &mut out);
     out
 }
-
