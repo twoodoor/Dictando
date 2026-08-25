@@ -78,16 +78,24 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 - UI: Tailwind utility classes, dark theme (zinc-950 bg, blue-500 accent, red-500 recording). Match existing components.
 - Keep raw transcription offline; never route audio/text through the network unless the AI layer is explicitly enabled.
 
-## Build status (2026-06-16)
+## Build status (2026-08-25)
 
 - Phases 0–3a **done and runtime-verified**: `npm run tauri dev` runs the native app; Parakeet v3 downloads from the Models tab and dictation works end-to-end (~150–250 ms transcriptions) — shortcut → record → transcribe (Parakeet/ONNX) → paste, with local SQLite history.
 - **UI redesigned** (Wispr-inspired): full-window app shell — slim custom titlebar (`decorations: false`) + left `Sidebar` (Dictate · Models · History · Dictionary · Settings), light default + dark/system theme via CSS-variable tokens in `index.css` + `lib/theme.ts`, violet accent, serif display headings. Dev port is **1420** (`dev:tauri` script, strictPort).
 - In-app hotkey recorder finalizes on the main (non-modifier) key — reliably captures combos like Ctrl+Space.
 - **Phase 3b/4 done:** system tray (Show/Quit), close→minimize (X minimizes so the hotkey keeps working), launch-on-startup (`tauri-plugin-autostart`), always-on-top recording overlay HUD (`overlay` window, `#overlay` route → `Overlay.tsx`), and the opt-in **Gemini AI cleanup** layer (`ai.rs`, toggle + local key in Settings; off by default = fully offline).
-- **Sound cues (opt-in):** discreet start/finish water-drop chimes, **synthesized at startup** (no asset files) and played via `rodio` on a dedicated thread (`sound.rs`) — start = rising drop, finish = resolving two-note drop. Gated on the `audioFeedback` setting (Settings → Audio; off by default); fired from `begin_recording`/`finish_recording`. Tuning dials are the four constants per drop in `render_start`/`render_finish`.
+- **Sound cues (opt-in):** discreet start/finish water-drop chimes, **synthesized at startup** (no asset files) and played via `rodio` on a dedicated thread (`sound.rs`) — start = rising drop, finish = resolving two-note drop. **Now on by default** (`audioFeedback: true`). Gated on the `audioFeedback` setting (Settings → Audio); fired from `begin_recording`/`finish_recording`.
 - **Hybrid engine on all platforms:** whisper.cpp is now compiled alongside ONNX on Windows/Apple-Silicon/Linux (not just Intel macOS), so the six OpenAI Whisper GGML models (`whisper-tiny`…`whisper-turbo`) appear in the Models tab and load everywhere. `models::supported_formats()` gates the catalog; `transcription.rs` dispatches `whisper*` ids to `WhisperEngine`. Parakeet v3 stays the non-Intel default. Requires CMake at build time (see Build & run).
+- **Phase A (2026-08-25):**
+  - `audio_feedback` **defaults to true** — water-drop chimes on out of the box
+  - `ai.rs` major overhaul: 40+ filler words/phrases (was 18), duplicate phrase detection (2–5 word windows, catches stutter-restarts like "I want to I want to"), standalone-I capitalisation, `preserve_custom_words()` for exact casing of Dictionary terms, 6 unit tests
+  - **Grok 4.1 Fast** added as second cloud cleanup provider (Settings: `ai_provider` = "gemini"|"grok", `grok_api_key` field). ~$0.0001/call, ~300–500 ms.
+  - **Hotkey key-repeat debounce**: `hotkey_held: AtomicBool` in `AppState` prevents Windows from flooding `begin_recording` calls during the ~30 Hz key-repeat that fires after 500 ms of holding.
 
 ## Known issues / tech debt
 
 - **Hardcoded Google OAuth client secret** in `windows_app/dictando.py:32-33` — must not be carried into the Tauri app; rotate and remove.
 - `audio.rs` uses a linear resampler (adequate for 16 kHz speech); consider `rubato` for higher quality.
+- **Phase B pending:** two-phase paste (paste local-cleaned text instantly, async cloud cleanup replaces), hotkey conflict detection UI, overlay latency reduction.
+- **Phase C pending:** SenseVoice Small (70 ms, NAR, 50+ langs) and Moonshine Tiny/Base (55–107 ms, English) to add to model catalog.
+
