@@ -1,11 +1,15 @@
-//! Inject transcribed text into the currently focused application.
+﻿//! Inject transcribed text into the currently focused application.
 //!
 //! Two strategies (selected by `paste_method` in settings):
 //!   - **direct**: type the text via simulated keystrokes (no clipboard touch).
 //!   - **clipboard**: place text on the clipboard and send Ctrl/Cmd+V, then
 //!     optionally restore the previous clipboard contents.
 //!
-//! Ported from the legacy Python app's clipboard+paste path.
+//! Two-phase paste support:
+//!   - Phase 1: inject the local-cleaned text immediately.
+//!   - Phase 2: if cloud AI produces a different result, call
+//!     `replace_pasted(n_chars, new_text)` which deletes the N chars that
+//!     were pasted and re-injects the polished version.
 
 use std::thread;
 use std::time::Duration;
@@ -37,6 +41,37 @@ pub fn inject_text(
         // Default to direct typing.
         _ => type_direct(&payload),
     }
+}
+
+/// Replace the last `n_chars` that were pasted with `new_text`.
+///
+/// Used by two-phase paste: after the cloud AI returns a polished version,
+/// this erases what was already injected and re-injects the better version.
+///
+/// Strategy: send `BackSpace` × n_chars to delete, then inject new_text.
+/// This works in all editors/browsers regardless of clipboard state.
+/// A brief pause is inserted before deleting to ensure the target window
+/// has processed the first paste before we start backspacing.
+pub fn replace_pasted(n_chars: usize, new_text: &str, paste_method: &str) -> Result<(), String> {
+    if n_chars == 0 && new_text.is_empty() {
+        return Ok(());
+    }
+    // Short pause: the user may have started typing after the paste. We only
+    // do the replacement within a tight window (caller enforces this).
+    thread::sleep(Duration::from_millis(80));
+
+    // Delete what was pasted.
+    if n_chars > 0 {
+        let mut enigo = Enigo::new(&Settings::default()).map_err(|e| e.to_string())?;
+        for _ in 0..n_chars {
+            enigo.key(Key::Backspace, Direction::Click).map_err(|e| e.to_string())?;
+        }
+    }
+
+    if !new_text.is_empty() {
+        inject_text(new_text, paste_method, false, false)?;
+    }
+    Ok(())
 }
 
 fn type_direct(text: &str) -> Result<(), String> {

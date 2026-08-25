@@ -1,4 +1,4 @@
-﻿//! Discreet water-drop cues for record start / finish.
+//! Discreet water-drop cues for record start / finish.
 //!
 //! The sounds are **synthesized** at startup — no asset files ship with the app.
 //! Each cue is a short, decaying sine "drop" whose pitch glides *upward* over
@@ -26,7 +26,6 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rodio::buffer::SamplesBuffer;
-use rodio::Source;
 
 const SAMPLE_RATE: u32 = 44_100;
 /// Keep the WASAPI stream warm for this long after the last cue.
@@ -103,7 +102,6 @@ fn run(rx: Receiver<Cue>, start: Vec<f32>, finish: Vec<f32>) {
                 if elapsed >= STREAM_KEEPALIVE {
                     // Keepalive expired — drop the stream and wait indefinitely.
                     stream_handle = None;
-                    last_cue_at = None;
                     match rx.recv() {
                         Ok(cue) => {
                             handle_cue(cue, &start, &finish, &mut stream_handle);

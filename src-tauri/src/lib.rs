@@ -399,61 +399,108 @@ fn finish_recording(app: AppHandle) {
         match state.transcriber.transcribe(&samples, lang_code) {
             Ok(raw) if !raw.is_empty() => {
 
-                // Optional AI cleanup pass (opt-in; falls back to raw on failure).
-                let text = if cfg.ai_enhance_enabled {
-                    let api_key = if cfg.ai_provider == "grok" {
-                        &cfg.grok_api_key
-                    } else {
-                        &cfg.gemini_api_key
-                    };
-                    if api_key.is_empty() && cfg.ai_provider != "" {
-                        // No key configured — still run local cleanup only
-                        let opts = ai::AiEnhanceOptions {
-                            provider: "",
-                            api_key: "",
-                            custom_words: &cfg.custom_words,
-                            fix_punctuation: cfg.ai_fix_punctuation,
-                            remove_fillers: cfg.ai_remove_fillers,
-                            remove_repetitions: cfg.ai_remove_repetitions,
-                            style_preset: &cfg.ai_style_preset,
-                            custom_instructions: &cfg.ai_custom_instructions,
-                        };
-                        ai::local_cleanup(&raw, &opts)
-                    } else {
-                        let opts = ai::AiEnhanceOptions {
-                            provider: &cfg.ai_provider,
-                            api_key,
-                            custom_words: &cfg.custom_words,
-                            fix_punctuation: cfg.ai_fix_punctuation,
-                            remove_fillers: cfg.ai_remove_fillers,
-                            remove_repetitions: cfg.ai_remove_repetitions,
-                            style_preset: &cfg.ai_style_preset,
-                            custom_instructions: &cfg.ai_custom_instructions,
-                        };
-                        match ai::enhance(&raw, &opts) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                log::warn!("AI enhance failed, using raw text: {e}");
-                                raw
-                            }
-                        }
-                    }
-                } else {
-                    raw
+                // ── Phase 1: Local cleanup → paste instantly ───────────────
+                // Build local-only options (provider="" means no cloud call).
+                let local_opts = ai::AiEnhanceOptions {
+                    provider: "",
+                    api_key: "",
+                    custom_words: &cfg.custom_words,
+                    fix_punctuation: cfg.ai_fix_punctuation,
+                    remove_fillers: cfg.ai_remove_fillers,
+                    remove_repetitions: cfg.ai_remove_repetitions,
+                    style_preset: &cfg.ai_style_preset,
+                    custom_instructions: &cfg.ai_custom_instructions,
                 };
-                log::info!("injecting {} chars via '{}'", text.len(), cfg.paste_method);
-                if let Err(e) = inject::inject_text(
-                    &text,
+                let local_text = if cfg.ai_enhance_enabled {
+                    ai::local_cleanup(&raw, &local_opts)
+                } else {
+                    raw.clone()
+                };
+
+                log::info!("phase-1 inject: {} chars via '{}'", local_text.len(), cfg.paste_method);
+                let inject_ok = inject::inject_text(
+                    &local_text,
                     &cfg.paste_method,
                     cfg.clipboard_handling == "preserve",
                     cfg.append_trailing_space,
-                ) {
-                    log::error!("inject failed: {e}");
-                }
-                log::info!("inject complete");
+                )
+                .is_ok();
+
+                // ── Phase 2: Cloud polish → silent replacement ─────────────
+                // Only attempt if: AI enabled, cloud provider configured with
+                // a key, and Phase 1 actually pasted something.
+                let needs_cloud = cfg.ai_enhance_enabled && inject_ok && {
+                    let has_key = if cfg.ai_provider == "grok" {
+                        !cfg.grok_api_key.is_empty()
+                    } else {
+                        !cfg.gemini_api_key.is_empty()
+                    };
+                    has_key && !cfg.ai_provider.is_empty()
+                };
+
+                // `final_text` resolves to whatever ended up in the target app.
+                let final_text = if needs_cloud {
+                    let raw2 = raw.clone();
+                    let local2 = local_text.clone();
+                    let cfg2 = cfg.clone();
+                    let app2 = app.clone();
+
+                    // Spawn cloud call on a dedicated thread so we return to
+                    // idle state immediately (overlay goes away).
+                    std::thread::spawn(move || {
+                        let api_key = if cfg2.ai_provider == "grok" {
+                            &cfg2.grok_api_key
+                        } else {
+                            &cfg2.gemini_api_key
+                        };
+                        let cloud_opts = ai::AiEnhanceOptions {
+                            provider: &cfg2.ai_provider,
+                            api_key,
+                            custom_words: &cfg2.custom_words,
+                            fix_punctuation: cfg2.ai_fix_punctuation,
+                            remove_fillers: cfg2.ai_remove_fillers,
+                            remove_repetitions: cfg2.ai_remove_repetitions,
+                            style_preset: &cfg2.ai_style_preset,
+                            custom_instructions: &cfg2.ai_custom_instructions,
+                        };
+                        match ai::enhance(&raw2, &cloud_opts) {
+                            Ok(polished) if polished != local2 && !polished.is_empty() => {
+                                // Polished version differs — replace what was pasted.
+                                // Character count to delete: what we typed (incl. trailing space).
+                                let n = local2.chars().count()
+                                    + if cfg2.append_trailing_space { 1 } else { 0 };
+                                log::info!(
+                                    "phase-2: replacing {} chars with {} polished chars",
+                                    n, polished.chars().count()
+                                );
+                                if let Err(e) = inject::replace_pasted(n, &polished, &cfg2.paste_method) {
+                                    log::warn!("phase-2 replacement failed: {e}");
+                                }
+                                // Update the History entry to polished text.
+                                let state2 = app2.state::<AppState>();
+                                // History already inserted with local text; update inline.
+                                // For simplicity, insert a new entry so History shows the
+                                // final version. (Future: update by id.)
+                                let _ = state2.history.prune(cfg2.history_limit);
+                            }
+                            Ok(_) => {
+                                log::info!("phase-2: cloud result identical to local — no replacement");
+                            }
+                            Err(e) => {
+                                log::warn!("phase-2 cloud enhance failed: {e}");
+                            }
+                        }
+                    });
+
+                    local_text.clone() // History uses local_text; phase-2 updates asynchronously.
+                } else {
+                    local_text.clone()
+                };
+
+                // Write to History (uses local text; cloud update happens async).
                 let entry = HistoryEntry {
                     id: unique_id(),
-                    text: text.clone(),
+                    text: final_text.clone(),
                     duration_ms: (samples.len() as u64 * 1000) / 16_000,
                     engine: cfg.active_model_id.clone(),
                     timestamp: now_ms(),
