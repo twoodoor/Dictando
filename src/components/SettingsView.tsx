@@ -74,6 +74,8 @@ export function SettingsView({ user }: { user: User | null }) {
   const [aiRemoveRepetitions, setAiRemoveRepetitions] = useState(true);
   const [aiStylePreset, setAiStylePreset] = useState<'clean' | 'polished' | 'concise' | 'casual'>('clean');
   const [aiCustomInstructions, setAiCustomInstructions] = useState('');
+  const [aiProvider, setAiProvider] = useState('gemini');
+  const [grokKey, setGrokKey] = useState('');
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [pressed, setPressed] = useState<string[]>([]);
@@ -138,6 +140,8 @@ export function SettingsView({ user }: { user: User | null }) {
         setAiRemoveRepetitions(s.aiRemoveRepetitions ?? true);
         setAiStylePreset((s.aiStylePreset as any) || 'clean');
         setAiCustomInstructions(s.aiCustomInstructions || '');
+        setAiProvider(s.aiProvider || 'gemini');
+        setGrokKey(s.grokApiKey || '');
       }).catch(() => {});
       return;
     }
@@ -282,7 +286,7 @@ export function SettingsView({ user }: { user: User | null }) {
             </select>
           </Row>
           {isNative && (
-            <Row title="Sound cues" desc="Discreet water-drop chime when recording starts and stops">
+            <Row title="🔊 Sound cues" desc="Water-drop chime on record start + stop — confirms dictation is active without looking at screen">
               <Toggle checked={audioFeedback} onChange={(v) => { setAudioFeedback(v); save('audioFeedback', v); }} />
             </Row>
           )}
@@ -349,26 +353,62 @@ export function SettingsView({ user }: { user: User | null }) {
 
         {isNative && (
           <Section title="AI enhancement">
-            <Row title="Clean up with AI" desc="Format, clean up, and polish raw transcription via Gemini (off = fully offline)">
+            <Row title="Clean up with AI" desc="Remove fillers, fix punctuation, and polish raw transcription (off = fully offline)">
               <Toggle checked={aiEnhance} onChange={(v) => { setAiEnhance(v); save('aiEnhanceEnabled', v); }} />
             </Row>
-            <div className="px-4 py-3.5">
-              <div className="text-sm font-medium text-fg">Gemini API key</div>
-              <div className="text-xs text-muted mt-0.5 mb-2">Stored locally. Required for AI cleanup; raw transcription never leaves your device.</div>
-              <div className="flex gap-2">
-                <input
-                  type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIzaSy…"
-                  className="flex-1 bg-surface-2 border border-line text-fg text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
-                />
-                <button
-                  onClick={() => { save('geminiApiKey', geminiKey); toast.success('Saved API key'); }}
-                  className="px-4 bg-accent text-accent-fg text-sm font-medium rounded-lg hover:bg-accent-strong transition-colors"
-                >Save</button>
-              </div>
-            </div>
 
             {aiEnhance && (
               <>
+                <Row title="Cloud provider" desc="Text is cleaned locally first; cloud polishes it in the background">
+                  <select
+                    value={aiProvider}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAiProvider(v);
+                      save('aiProvider', v);
+                    }}
+                    className={selectCls}
+                  >
+                    <option value="gemini">Google Gemini</option>
+                    <option value="grok">xAI Grok</option>
+                    <option value="">Local only (no cloud)</option>
+                  </select>
+                </Row>
+
+                {aiProvider === 'gemini' && (
+                  <div className="px-4 py-3.5">
+                    <div className="text-sm font-medium text-fg">Gemini API key</div>
+                    <div className="text-xs text-muted mt-0.5 mb-2">Stored locally. Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" className="text-accent hover:underline">aistudio.google.com</a></div>
+                    <div className="flex gap-2">
+                      <input
+                        type="password" value={geminiKey} onChange={(e) => setGeminiKey(e.target.value)} placeholder="AIzaSy…"
+                        className="flex-1 bg-surface-2 border border-line text-fg text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+                      />
+                      <button
+                        onClick={() => { save('geminiApiKey', geminiKey); toast.success('Gemini key saved'); }}
+                        className="px-4 bg-accent text-accent-fg text-sm font-medium rounded-lg hover:bg-accent-strong transition-colors"
+                      >Save</button>
+                    </div>
+                  </div>
+                )}
+
+                {aiProvider === 'grok' && (
+                  <div className="px-4 py-3.5">
+                    <div className="text-sm font-medium text-fg">Grok API key</div>
+                    <div className="text-xs text-muted mt-0.5 mb-2">Stored locally. Get a key at <a href="https://console.x.ai/" target="_blank" rel="noreferrer" className="text-accent hover:underline">console.x.ai</a> · ~$0.0001 per dictation</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="password" value={grokKey} onChange={(e) => setGrokKey(e.target.value)} placeholder="xai-…"
+                        className="flex-1 bg-surface-2 border border-line text-fg text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-accent"
+                      />
+                      <button
+                        onClick={() => { save('grokApiKey', grokKey); toast.success('Grok key saved'); }}
+                        className="px-4 bg-accent text-accent-fg text-sm font-medium rounded-lg hover:bg-accent-strong transition-colors"
+                      >Save</button>
+                    </div>
+                  </div>
+                )}
+
                 <Row title="Fix punctuation & formatting" desc="Auto-correct capitalization, punctuation, and sentence boundaries">
                   <Toggle checked={aiFixPunctuation} onChange={(v) => { setAiFixPunctuation(v); save('aiFixPunctuation', v); }} />
                 </Row>

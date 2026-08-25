@@ -63,6 +63,8 @@ export interface AppSettings {
   aiRemoveRepetitions: boolean;
   aiStylePreset: AiStylePreset;
   aiCustomInstructions: string;
+  aiProvider: string;         // "gemini" | "grok" | ""
+  grokApiKey: string;
 }
 
 export interface TranscriptionResult {

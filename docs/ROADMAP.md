@@ -67,11 +67,11 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 
 | # | Task | Status |
 |---|---|---|
-| D1 | Cloud provider selector: Gemini / Grok / Disabled | `[ ]` |
-| D2 | Grok API key field (conditional, shown when Grok selected) | `[ ]` |
-| D3 | Audio feedback toggle more prominent + sound description text | `[ ]` |
+| D1 | Cloud provider selector: Gemini / Grok / Local only | `[x]` |
+| D2 | Grok API key field (conditional, shown when Grok selected) | `[x]` |
+| D3 | Audio feedback toggle more prominent + sound description text | `[x]` |
 | D4 | Hotkey conflict warning badge (fed by B3) | `[x]` |
-| D5 | Model tier labels in Models tab (fed by C4) | `[ ]` |
+| D5 | Model tier labels in Models tab (fed by C4) | `[x]` |
 
 ---
 
@@ -105,4 +105,5 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 ## Devlog
 - **2026-08-25 (Phase A)**: Audio feedback fixed — warm WASAPI stream + migration v0?v1 forces it on for existing users. 40+ filler words. Duplicate phrase detection. Standalone-I caps. Grok 4.1 Fast added. Hotkey debounce. 6 tests passing. ROADMAP.md created.
 - **2026-08-25 (Decisions)**: Owner selected: two-phase Wispr-style paste (B1), keep Ctrl+Space + conflict badge (B3), SenseVoice first then Moonshine Tiny (C1+C2), both Gemini+Grok available.
+
 
