@@ -56,10 +56,10 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 
 | # | Task | Notes | Status |
 |---|---|---|---|
-| C1 | **SenseVoice Small** (ONNX) — ~35 ms, 50+ langs, non-autoregressive | via sherpa-onnx Rust bindings | `[~]` |
-| C2 | **Moonshine Tiny** (ONNX) — ~55 ms, English-only, 27 M params | Direct ORT (same as Parakeet) | `[~]` |
-| C3 | **Moonshine Base** (ONNX) — ~107 ms, English, higher accuracy | | `[ ]` |
-| C4 | Model catalog tier labels (Lightning / Balanced / Quality / Multilingual) | `ModelsView.tsx` | `[ ]` |
+| C1 | **SenseVoice Small** (ONNX) — ~35 ms, 50+ langs, non-autoregressive | Already in catalog + engine; via `transcribe-rs` | `[x]` |
+| C2 | **Moonshine Tiny** (ONNX) — ~55 ms, English-only, 27 M params | Engine dispatch ready; needs hosted tar.gz | `[/]` |
+| C3 | **Moonshine Base** (ONNX) — ~107 ms, English, higher accuracy | Already in catalog + engine | `[x]` |
+| C4 | Model catalog tier labels (? Lightning / ?? Balanced) in descriptions | `models.rs` | `[x]` |
 
 ---
 
@@ -70,7 +70,7 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 | D1 | Cloud provider selector: Gemini / Grok / Disabled | `[ ]` |
 | D2 | Grok API key field (conditional, shown when Grok selected) | `[ ]` |
 | D3 | Audio feedback toggle more prominent + sound description text | `[ ]` |
-| D4 | Hotkey conflict warning badge (fed by B3) | `[ ]` |
+| D4 | Hotkey conflict warning badge (fed by B3) | `[x]` |
 | D5 | Model tier labels in Models tab (fed by C4) | `[ ]` |
 
 ---
@@ -105,3 +105,4 @@ Build a dictation experience that rivals **Wispr Flow** and **Glaido**:
 ## Devlog
 - **2026-08-25 (Phase A)**: Audio feedback fixed — warm WASAPI stream + migration v0?v1 forces it on for existing users. 40+ filler words. Duplicate phrase detection. Standalone-I caps. Grok 4.1 Fast added. Hotkey debounce. 6 tests passing. ROADMAP.md created.
 - **2026-08-25 (Decisions)**: Owner selected: two-phase Wispr-style paste (B1), keep Ctrl+Space + conflict badge (B3), SenseVoice first then Moonshine Tiny (C1+C2), both Gemini+Grok available.
+

@@ -57,7 +57,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v3",
         name: "Parakeet V3",
-        description: "Fast and accurate. 25 languages with auto-detection.",
+        description: "⚖️ Balanced — fast and accurate. 25 languages with auto-detection.",
         languages: "Multi-language",
         size_bytes: 478 * 1024 * 1024,
         accuracy: 0.92,
@@ -70,7 +70,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v2",
         name: "Parakeet V2",
-        description: "English-only. The best model for English speakers.",
+        description: "⚖️ Balanced — English-only. The best model for English speakers.",
         languages: "English Only",
         size_bytes: 473 * 1024 * 1024,
         accuracy: 0.9,
@@ -83,7 +83,7 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "moonshine-base",
         name: "Moonshine Base",
-        description: "Very fast, English only. Handles accents well.",
+        description: "⚡ Lightning — very fast, English only. Handles accents well.",
         languages: "English Only",
         size_bytes: 55 * 1024 * 1024,
         accuracy: 0.72,
@@ -96,11 +96,11 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "sense-voice-int8",
         name: "SenseVoice",
-        description: "Very fast. Chinese, English, Japanese, Korean, Cantonese.",
+        description: "⚡ Lightning — fastest model. Chinese, English, Japanese, Korean, Cantonese.",
         languages: "Multi-language",
         size_bytes: 152 * 1024 * 1024,
         accuracy: 0.8,
-        speed: 0.95,
+        speed: 0.99,
         format: "onnx",
         supports_translation: false,
         download_url: "https://blob.handy.computer/sense-voice-int8.tar.gz",

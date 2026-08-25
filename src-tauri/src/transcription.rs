@@ -182,8 +182,13 @@ fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
             ParakeetModel::load(&resolved_dir, &Quantization::Int8).map_err(|e| e.to_string())?,
         )));
     } else if model_id.starts_with("moonshine") {
+        let variant = if model_id.contains("tiny") {
+            MoonshineVariant::Tiny
+        } else {
+            MoonshineVariant::Base
+        };
         return Ok(Engine::Onnx(Box::new(
-            MoonshineModel::load(&resolved_dir, MoonshineVariant::Base, &Quantization::default())
+            MoonshineModel::load(&resolved_dir, variant, &Quantization::default())
                 .map_err(|e| e.to_string())?,
         )));
     } else if model_id.starts_with("sense-voice") {
