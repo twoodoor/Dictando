@@ -83,18 +83,18 @@ export function SettingsView({ user }: { user: User | null }) {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.3.5');
+  const [appVersion, setAppVersion] = useState('0.3.6');
   const [hotkeyConflict, setHotkeyConflict] = useState(false);
 
-  const handleCheckUpdate = async () => {
+  const handleCheckUpdate = async (force = false) => {
     setCheckingUpdate(true);
     try {
-      const update = await checkForAppUpdates();
+      const update = await checkForAppUpdates(force);
       setUpdateInfo(update);
       if (!update) {
         toast.success(`Mumblr is up to date${appVersion ? ` (v${appVersion})` : ''}`);
       } else {
-        toast.info(`Version ${update.version} is available!`);
+        toast.info(force ? `Ready to reinstall v${update.version}` : `Version ${update.version} is available!`);
       }
     } catch (e: any) {
       const msg = e?.message || String(e);
@@ -336,24 +336,36 @@ export function SettingsView({ user }: { user: User | null }) {
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
             </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.5'}`}>
-              {updateInfo ? (
-                <button
-                  disabled={installingUpdate}
-                  onClick={handleInstallUpdate}
-                  className="px-3 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-strong transition-colors disabled:opacity-50"
-                >
-                  {installingUpdate ? 'Installing…' : `Install v${updateInfo.version}`}
-                </button>
-              ) : (
-                <button
-                  disabled={checkingUpdate}
-                  onClick={handleCheckUpdate}
-                  className="px-3 py-1.5 bg-surface-2 text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
-                >
-                  {checkingUpdate ? 'Checking…' : 'Check for updates'}
-                </button>
-              )}
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.6'}`}>
+              <div className="flex gap-2">
+                {updateInfo ? (
+                  <button
+                    disabled={installingUpdate}
+                    onClick={handleInstallUpdate}
+                    className="px-3 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-strong transition-colors disabled:opacity-50"
+                  >
+                    {installingUpdate ? 'Installing…' : `Install v${updateInfo.version}`}
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      disabled={checkingUpdate}
+                      onClick={() => handleCheckUpdate(false)}
+                      className="px-3 py-1.5 bg-surface-2 text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
+                    >
+                      {checkingUpdate ? 'Checking…' : 'Check for updates'}
+                    </button>
+                    <button
+                      disabled={checkingUpdate || installingUpdate}
+                      onClick={() => handleCheckUpdate(true)}
+                      title="Reinstall the latest build from server even if version numbers match"
+                      className="px-2.5 py-1.5 bg-surface-2 text-muted hover:text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
+                    >
+                      Force update
+                    </button>
+                  </>
+                )}
+              </div>
             </Row>
           </Section>
         )}

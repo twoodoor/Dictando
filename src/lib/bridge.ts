@@ -191,6 +191,8 @@ export const events = {
     listen<BackendStatus>('model-status', h),
   onDownloadProgress: (h: (p: DownloadProgress) => void) =>
     listen<DownloadProgress>('download-progress', h),
+  onAudioLevel: (h: (level: number) => void) =>
+    listen<number>('audio-level', h),
 };
 
 export interface AppUpdateInfo {
@@ -200,11 +202,11 @@ export interface AppUpdateInfo {
   downloadAndInstall: () => Promise<void>;
 }
 
-export async function checkForAppUpdates(): Promise<AppUpdateInfo | null> {
+export async function checkForAppUpdates(force = false): Promise<AppUpdateInfo | null> {
   if (!isNative) return null;
   try {
     const { check } = await import('@tauri-apps/plugin-updater');
-    const update = await check();
+    const update = await check({ allowDowngrades: force });
     if (!update) return null;
     return {
       version: update.version,

@@ -52,7 +52,11 @@ impl Recorder {
     }
 
     /// Begin recording from `microphone_id` ("default" or a cpal device name).
-    pub fn start(&self, microphone_id: &str) -> Result<(), String> {
+    pub fn start(
+        &self,
+        microphone_id: &str,
+        on_level: Option<Box<dyn Fn(f32) + Send + 'static>>,
+    ) -> Result<(), String> {
         let mut guard = self.capture.lock().unwrap();
         if guard.is_some() {
             return Err("already recording".into());
@@ -86,11 +90,24 @@ impl Recorder {
         let handle = std::thread::spawn(move || {
             let err_fn = |e| log::error!("audio stream error: {e}");
             let buf_for_cb = thread_buffer.clone();
+            let last_level = Mutex::new(std::time::Instant::now());
             let push = move |samples: &[f32]| {
                 let mono = downmix_to_mono(samples, channels);
                 let resampled = resample_linear(&mono, src_rate, TARGET_RATE);
                 if let Ok(mut b) = buf_for_cb.lock() {
                     b.extend_from_slice(&resampled);
+                }
+                if let Some(ref cb) = on_level {
+                    if let Ok(mut last) = last_level.lock() {
+                        if last.elapsed() >= std::time::Duration::from_millis(30) {
+                            let sum_sq: f32 = mono.iter().map(|&s| s * s).sum();
+                            let rms = (sum_sq / mono.len().max(1) as f32).sqrt();
+                            // Scale RMS to a normalized [0.0, 1.0] range with subtle gain
+                            let level = (rms * 6.0).min(1.0);
+                            cb(level);
+                            *last = std::time::Instant::now();
+                        }
+                    }
                 }
             };
 

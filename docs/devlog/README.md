@@ -4,8 +4,7 @@ Running record of significant changes, decisions, and their rationale during the
 
 **How to use:** for every meaningful change, add a dated entry file named `YYYY-MM-DD-<topic>.md` and link it in the index below. Each entry follows the template at the bottom. Keep `CLAUDE.md` (+ `GEMINI.md`/`AGENTS.md`) in sync when architecture changes.
 
-## Index
-
+- [2026-08-25 — Dynamic animated listening pill & mouse-aware screen targeting](./2026-08-25-dynamic-animated-listening-pill.md)
 - [2026-08-19 — Model inference optimizations, direct Whisper Greedy decoding & directory auto-healing (v0.3.1)](./2026-08-19-model-inference-whisper-optimizations.md)
 - [2026-08-07 — Start/finish sound cues (synthesized water drops)](./2026-08-07-audio-cues.md)
 - [2026-08-07 — OpenAI Whisper on all platforms (hybrid engine everywhere)](./2026-08-07-whisper-all-platforms.md)

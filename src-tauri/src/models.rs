@@ -445,7 +445,7 @@ pub fn install(app: &AppHandle, model_id: &str, app_data_dir: &Path) -> Result<(
     match entry.format {
         "onnx" => {
             emit(app, model_id, downloaded, total, "extracting");
-            extract_targz(&tmp, &root, &dest)?;
+            extract_archive(&tmp, &root, &dest)?;
         }
         "ggml" => {
             std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
@@ -460,10 +460,10 @@ pub fn install(app: &AppHandle, model_id: &str, app_data_dir: &Path) -> Result<(
     Ok(())
 }
 
-/// Extract a `.tar.gz` into a staging dir, then place its contents at `dest`.
+/// Extract a `.tar.gz` or `.tar.bz2` archive into a staging dir, then place its contents at `dest`.
 /// Handles archives that wrap everything in a single top-level directory or
 /// contain macOS metadata files (like ._* and .DS_Store).
-fn extract_targz(archive: &Path, root: &Path, dest: &Path) -> Result<(), String> {
+fn extract_archive(archive: &Path, root: &Path, dest: &Path) -> Result<(), String> {
     let staging = root.join(".staging");
     if staging.exists() {
         std::fs::remove_dir_all(&staging).ok();
@@ -510,6 +510,7 @@ pub fn find_model_dir(dir: &Path) -> PathBuf {
                     return false;
                 }
                 p.extension().map(|ext| ext == "onnx" || ext == "bin").unwrap_or(false)
+                    || name == "tokens.txt"
             })
         })
         .unwrap_or(false);

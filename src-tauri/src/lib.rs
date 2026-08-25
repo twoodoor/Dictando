@@ -116,6 +116,64 @@ fn set_recording_state(app: &AppHandle, st: &str) {
     update_overlay(app, st);
 }
 
+#[cfg(target_os = "windows")]
+fn get_cursor_pos() -> Option<(i32, i32)> {
+    #[repr(C)]
+    struct POINT {
+        x: i32,
+        y: i32,
+    }
+    extern "system" {
+        fn GetCursorPos(lpPoint: *mut POINT) -> i32;
+    }
+    let mut pt = POINT { x: 0, y: 0 };
+    let ok = unsafe { GetCursorPos(&mut pt) };
+    if ok != 0 {
+        Some((pt.x, pt.y))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_cursor_pos() -> Option<(i32, i32)> {
+    None
+}
+
+/// Find the monitor that currently contains the mouse cursor.
+/// Falls back to the current window's monitor, then the primary monitor.
+fn get_cursor_monitor(w: &tauri::WebviewWindow) -> Option<tauri::Monitor> {
+    if let Some((cx, cy)) = get_cursor_pos() {
+        if let Ok(monitors) = w.available_monitors() {
+            for m in monitors {
+                let pos = m.position();
+                let size = m.size();
+                let x = pos.x;
+                let y = pos.y;
+                let w_px = size.width as i32;
+                let h_px = size.height as i32;
+                if cx >= x && cx < x + w_px && cy >= y && cy < y + h_px {
+                    return Some(m);
+                }
+            }
+        }
+    }
+    w.current_monitor().ok().flatten().or_else(|| w.primary_monitor().ok().flatten())
+}
+
+/// Place the overlay near the bottom-center of the screen where the mouse cursor is located.
+fn position_overlay(w: &tauri::WebviewWindow) {
+    if let Some(monitor) = get_cursor_monitor(w) {
+        let screen_pos = monitor.position();
+        let screen_size = monitor.size();
+        let win = w.outer_size().unwrap_or(tauri::PhysicalSize::new(380, 84));
+        let x = screen_pos.x + ((screen_size.width.saturating_sub(win.width)) / 2) as i32;
+        // Float nicely above the taskbar / dock
+        let y = screen_pos.y + (screen_size.height.saturating_sub(win.height + 72)) as i32;
+        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+}
+
 /// Show the recording overlay while active, hide it when idle. The overlay
 /// window listens to the same `recording-state` event for its visuals.
 fn update_overlay(app: &AppHandle, st: &str) {
@@ -123,6 +181,7 @@ fn update_overlay(app: &AppHandle, st: &str) {
         Some(w) => {
             if st == "recording" || st == "transcribing" {
                 position_overlay(&w);
+                let _ = w.set_ignore_cursor_events(true);
                 if let Err(e) = w.show() {
                     log::error!("overlay show failed: {e}");
                 }
@@ -132,17 +191,6 @@ fn update_overlay(app: &AppHandle, st: &str) {
             }
         }
         None => log::warn!("overlay window not found"),
-    }
-}
-
-/// Place the overlay near the bottom-center of the primary monitor.
-fn position_overlay(w: &tauri::WebviewWindow) {
-    if let Ok(Some(monitor)) = w.primary_monitor() {
-        let screen = monitor.size();
-        let win = w.outer_size().unwrap_or(tauri::PhysicalSize::new(200, 54));
-        let x = ((screen.width.saturating_sub(win.width)) / 2) as i32;
-        let y = (screen.height.saturating_sub(win.height + 90)) as i32;
-        let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
     }
 }
 
@@ -352,7 +400,11 @@ fn handle_tray_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
 fn begin_recording(app: AppHandle) {
     let state = app.state::<AppState>();
     let cfg = state.settings.get();
-    match state.recorder.start(&cfg.microphone_id) {
+    let app_handle = app.clone();
+    let on_level = Box::new(move |lvl: f32| {
+        let _ = app_handle.emit("audio-level", lvl);
+    });
+    match state.recorder.start(&cfg.microphone_id, Some(on_level)) {
         Ok(()) => {
             set_recording_state(&app, "recording");
             if cfg.audio_feedback {
