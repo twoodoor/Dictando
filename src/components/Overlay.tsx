@@ -3,21 +3,25 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Check } from 'lucide-react';
 import { events, type RecordingState, isNative } from '../lib/bridge';
 
-/** Number of equalizer bars in the waveform visualizer. */
-const BAR_COUNT = 16;
+/** Number of equalizer bars in the hero waveform. */
+const BAR_COUNT = 20;
 
 /**
- * Flat, graphic listening pill HUD. The wide audio-reactive equalizer is the
- * hero element — a beautiful artifact to watch while speaking.
+ * Flat, graphic listening pill HUD with a living, juicy 60 FPS audio visualizer.
+ * The equalizer is the centerpiece — dancing organically even at rest and
+ * reacting dynamically to your voice in real time.
  */
 export function Overlay() {
   const [state, setState] = useState<RecordingState>('recording');
-  const [audioLevel, setAudioLevel] = useState(0);
   const [elapsedSec, setElapsedSec] = useState(0);
   const [showPasted, setShowPasted] = useState(false);
+  const [barHeights, setBarHeights] = useState<number[]>(() => Array(BAR_COUNT).fill(6));
+
+  const rawLevelRef = useRef(0);
   const smoothedLevelRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // Subscribe to backend recording state, live audio levels, and paste events
   useEffect(() => {
     const unlistenState = events.onRecordingState((newState) => {
       setState(newState);
@@ -28,11 +32,7 @@ export function Overlay() {
     });
 
     const unlistenAudio = events.onAudioLevel((level) => {
-      smoothedLevelRef.current = Math.max(
-        level,
-        smoothedLevelRef.current * 0.7 + level * 0.3
-      );
-      setAudioLevel(smoothedLevelRef.current);
+      rawLevelRef.current = level;
     });
 
     const unlistenText = events.onTranscription((result) => {
@@ -48,7 +48,7 @@ export function Overlay() {
     };
   }, []);
 
-  // Live timer
+  // Live timer during recording
   useEffect(() => {
     if (state === 'recording') {
       timerRef.current = setInterval(() => {
@@ -62,25 +62,58 @@ export function Overlay() {
     };
   }, [state]);
 
-  // Smooth decay + browser-preview simulation
+  // Living 60 FPS waveform animation engine
   useEffect(() => {
     let animId: number;
     let tick = 0;
-    const loop = () => {
-      tick += 0.08;
+
+    const renderLoop = () => {
+      tick += 0.07;
+
+      let targetLevel = rawLevelRef.current;
       if (!isNative) {
-        const sim =
-          (Math.sin(tick) * 0.5 + 0.5) * 0.55 +
-          (Math.sin(tick * 2.3) * 0.5 + 0.5) * 0.3 +
+        // Browser fallback: simulated organic voice fluctuations
+        targetLevel =
+          (Math.sin(tick * 0.9) * 0.5 + 0.5) * 0.6 +
+          (Math.sin(tick * 2.1) * 0.5 + 0.5) * 0.35 +
           (Math.sin(tick * 3.7) * 0.5 + 0.5) * 0.15;
-        setAudioLevel(sim);
-      } else {
-        smoothedLevelRef.current *= 0.88;
-        if (smoothedLevelRef.current < 0.02) smoothedLevelRef.current = 0;
       }
-      animId = requestAnimationFrame(loop);
+
+      // Fast attack (quick response to speech), smooth exponential release
+      smoothedLevelRef.current =
+        smoothedLevelRef.current * 0.72 + targetLevel * 0.28;
+
+      // Natural decay of raw level
+      rawLevelRef.current *= 0.92;
+
+      // Compute heights for all 20 bars with center bell-curve bias
+      const center = (BAR_COUNT - 1) / 2;
+      const heights: number[] = [];
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const dist = Math.abs(i - center) / center; // 0 at center, 1 at edges
+        const bell = Math.cos(dist * (Math.PI / 2.3)); // Smooth bell curve (1.0 -> 0.25)
+        const phase = i * 0.38;
+
+        // Base idle breathing wave (4px to 10px) so it's always alive and organic
+        const w1 = Math.sin(tick + phase) * 0.5 + 0.5;
+        const w2 = Math.sin(tick * 1.6 + phase * 1.8) * 0.5 + 0.5;
+        const idle = 4.0 + (w1 * 0.6 + w2 * 0.4) * 6.0 * bell;
+
+        // Dynamic voice surge (up to +18px)
+        const energy = Math.pow(smoothedLevelRef.current, 0.75);
+        const voiceBoost = energy * 18.0 * bell;
+        const voiceFlutter = Math.sin(tick * 2.8 + phase * 2.2) * 0.5 + 0.5;
+
+        const total = Math.min(26, Math.max(3.5, idle + voiceBoost * (0.6 + voiceFlutter * 0.4)));
+        heights.push(Math.round(total * 10) / 10);
+      }
+
+      setBarHeights(heights);
+      animId = requestAnimationFrame(renderLoop);
     };
-    animId = requestAnimationFrame(loop);
+
+    animId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(animId);
   }, []);
 
@@ -105,10 +138,11 @@ export function Overlay() {
           damping: 34,
           mass: 0.7,
         }}
-        className="relative flex items-center gap-3 px-4 py-2.5 rounded-full bg-zinc-950/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/80"
+        className="relative flex items-center gap-3.5 px-4 py-2.5 rounded-full bg-zinc-950/95 backdrop-blur-xl border border-white/10 shadow-2xl shadow-black/80 ring-1 ring-white/5"
       >
         <AnimatePresence mode="wait">
           {showPasted ? (
+            /* Success / Pasted state */
             <motion.div
               key="pasted"
               initial={{ opacity: 0, scale: 0.85 }}
@@ -124,72 +158,50 @@ export function Overlay() {
               </span>
             </motion.div>
           ) : isRecording ? (
+            /* Hero Equalizer Listening State */
             <motion.div
               key="recording"
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               transition={{ type: 'spring', stiffness: 450, damping: 30 }}
-              className="flex items-center gap-3"
+              className="flex items-center gap-3.5"
             >
-              {/* Red recording dot */}
+              {/* Pulsing Red Recording Indicator */}
               <div className="relative flex items-center justify-center w-3.5 h-3.5 shrink-0">
                 <motion.span
                   animate={{
-                    scale: [1, 1.7, 1],
-                    opacity: [0.6, 0, 0.6],
+                    scale: [1, 1.8, 1],
+                    opacity: [0.65, 0, 0.65],
                   }}
                   transition={{
                     repeat: Infinity,
-                    duration: 1.5,
+                    duration: 1.4,
                     ease: 'easeOut',
                   }}
                   className="absolute w-full h-full rounded-full border border-red-500/60"
                 />
-                <span className="relative w-2 h-2 rounded-full bg-red-500" />
+                <span className="relative w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]" />
               </div>
 
-              {/* ── Wide Hero Equalizer ── */}
-              <div className="flex items-center gap-[3px] h-6">
-                {Array.from({ length: BAR_COUNT }, (_, i) => {
-                  // Each bar gets a unique phase so the waveform looks organic
-                  const phase = i * 0.45;
-                  const minH = 3;
-                  const maxH = 22;
-                  const boost = audioLevel * (maxH - minH);
-
-                  // Composite wave: two frequencies for natural voice-like motion
-                  const w1 = Math.sin(Date.now() * 0.007 + phase) * 0.5 + 0.5;
-                  const w2 = Math.sin(Date.now() * 0.013 + phase * 1.7) * 0.5 + 0.5;
-                  const wave = w1 * 0.6 + w2 * 0.4;
-
-                  // Bell curve bias: center bars reach higher
-                  const center = (BAR_COUNT - 1) / 2;
-                  const dist = Math.abs(i - center) / center; // 0 at center, 1 at edges
-                  const bell = 1 - dist * 0.45;
-
-                  const h = Math.min(
-                    maxH,
-                    Math.max(minH, minH + boost * wave * bell)
-                  );
-
-                  return (
-                    <motion.span
-                      key={i}
-                      animate={{ height: `${h}px` }}
-                      transition={{ type: 'spring', stiffness: 500, damping: 20 }}
-                      className="w-[3px] rounded-full bg-zinc-100"
-                    />
-                  );
-                })}
+              {/* ── Wide Hero Equalizer Waveform (20 Bars) ── */}
+              <div className="flex items-center gap-[3px] h-7">
+                {barHeights.map((h, i) => (
+                  <span
+                    key={i}
+                    style={{ height: `${h}px` }}
+                    className="w-[2.5px] rounded-full bg-zinc-100 transition-[height] duration-75 ease-out shrink-0"
+                  />
+                ))}
               </div>
 
-              {/* Timer */}
-              <span className="text-[11px] font-mono text-zinc-400 tabular-nums shrink-0">
+              {/* Tabular Timer */}
+              <span className="text-[11.5px] font-mono text-zinc-400 tabular-nums shrink-0 pl-0.5">
                 {formatTime(elapsedSec)}
               </span>
             </motion.div>
           ) : (
+            /* Transcribing State */
             <motion.div
               key="transcribing"
               initial={{ opacity: 0, scale: 0.95 }}

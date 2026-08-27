@@ -99,11 +99,11 @@ impl Recorder {
                 }
                 if let Some(ref cb) = on_level {
                     if let Ok(mut last) = last_level.lock() {
-                        if last.elapsed() >= std::time::Duration::from_millis(30) {
+                        if last.elapsed() >= std::time::Duration::from_millis(25) {
                             let sum_sq: f32 = mono.iter().map(|&s| s * s).sum();
                             let rms = (sum_sq / mono.len().max(1) as f32).sqrt();
-                            // Scale RMS to a normalized [0.0, 1.0] range with subtle gain
-                            let level = (rms * 6.0).min(1.0);
+                            // Sensitive gain so typical speech RMS (0.01..0.08) scales vibrantly
+                            let level = (rms * 20.0).min(1.0);
                             cb(level);
                             *last = std::time::Instant::now();
                         }
