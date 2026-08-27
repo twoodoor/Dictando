@@ -783,8 +783,65 @@ fn open_path(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Clear the WebView2 disk cache if our version changed since the last launch.
+///
+/// Must be called **before** `tauri::Builder` so no window has loaded stale
+/// content yet.  Uses OS env vars to locate the cache dir because the Tauri
+/// `AppHandle` doesn't exist at this point.
+fn bust_webview2_cache_if_stale() {
+    let version = env!("CARGO_PKG_VERSION");
+
+    // Compute app local data dir without a Tauri handle.
+    // On Windows: %LOCALAPPDATA%\{identifier}
+    // On macOS:   ~/Library/Application Support/{identifier}
+    // On Linux:   $XDG_DATA_HOME/{identifier} or ~/.local/share/{identifier}
+    let identifier = "com.mumblr.desktop";
+
+    #[cfg(target_os = "windows")]
+    let cache_root = std::env::var_os("LOCALAPPDATA")
+        .map(|d| PathBuf::from(d).join(identifier));
+
+    #[cfg(target_os = "macos")]
+    let cache_root = std::env::var_os("HOME")
+        .map(|d| PathBuf::from(d).join("Library/Application Support").join(identifier));
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let cache_root = {
+        let base = std::env::var_os("XDG_DATA_HOME").unwrap_or_else(|| {
+            let mut p = PathBuf::from(std::env::var_os("HOME").unwrap_or_default());
+            p.push(".local/share");
+            p.into_os_string()
+        });
+        Some(PathBuf::from(base).join(identifier))
+    };
+
+    let Some(cache_root) = cache_root else { return };
+    let sentinel = cache_root.join(".last_version");
+
+    let stale = std::fs::read_to_string(&sentinel)
+        .map(|v| v.trim() != version)
+        .unwrap_or(true);
+
+    if stale {
+        eprintln!("Mumblr: version changed → clearing WebView2 cache for v{version}");
+        let eb = cache_root.join("EBWebView").join("Default");
+        let _ = std::fs::remove_dir_all(eb.join("Cache"));
+        let _ = std::fs::remove_dir_all(eb.join("Code Cache"));
+        // Write sentinel so we don't repeat on next launch.
+        let _ = std::fs::write(&sentinel, version);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // ── WebView2 cache-bust (runs BEFORE any window is created) ──────
+    // WebView2 aggressively caches content served via the tauri:// custom
+    // protocol.  After the NSIS updater replaces mumblr.exe, the new binary
+    // embeds new frontend bundles, but WebView2 may serve stale HTML/JS/CSS
+    // from its disk cache.  Clearing the cache dirs before Builder::default()
+    // ensures no window loads stale content.
+    bust_webview2_cache_if_stale();
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -905,54 +962,6 @@ pub fn run() {
 
             // Apply launch-on-startup preference.
             sync_autostart(app.handle(), snapshot.launch_on_startup);
-
-            // ── WebView2 cache-bust after updates ────────────────────────
-            // WebView2 aggressively caches content served via the tauri://
-            // custom protocol.  After the NSIS updater replaces mumblr.exe
-            // the new binary ships new frontend bundles, but WebView2 may
-            // still serve stale HTML/JS/CSS from its disk cache.  We detect
-            // a version change via a sentinel file and, when it happens,
-            // (a) delete the EBWebView Cache & Code Cache dirs and
-            // (b) navigate all windows to a versioned URL so WebView2
-            //     fetches fresh content from the embedded bundle.
-            {
-                let version = env!("CARGO_PKG_VERSION");
-                let cache_root = app
-                    .path()
-                    .app_local_data_dir()
-                    .expect("resolve app local data dir");
-                let sentinel = cache_root.join(".last_version");
-
-                let stale = std::fs::read_to_string(&sentinel)
-                    .map(|v| v.trim() != version)
-                    .unwrap_or(true);
-
-                if stale {
-                    log::info!(
-                        "version changed → busting WebView2 cache for v{version}"
-                    );
-                    // Best-effort delete of WebView2 disk caches
-                    let eb = cache_root.join("EBWebView").join("Default");
-                    let _ = std::fs::remove_dir_all(eb.join("Cache"));
-                    let _ = std::fs::remove_dir_all(eb.join("Code Cache"));
-
-                    // Write sentinel so we don't repeat on next launch
-                    let _ = std::fs::write(&sentinel, version);
-                }
-
-                // Always navigate to a versioned URL — cheap no-op if the
-                // content is already the right version, and guarantees the
-                // correct bundle after an update.
-                let versioned_url: tauri::Url = format!(
-                    "tauri://localhost/?v={version}"
-                ).parse().expect("valid versioned URL");
-
-                for label in ["main", "overlay"] {
-                    if let Some(w) = app.get_webview_window(label) {
-                        let _ = w.navigate(versioned_url.clone());
-                    }
-                }
-            }
 
             Ok(())
         })
