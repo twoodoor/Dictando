@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Mumblr",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "identifier": "com.mumblr.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -22,19 +22,6 @@
         "decorations": false,
         "transparent": false,
         "center": true
-      },
-      {
-        "label": "overlay",
-        "width": 440,
-        "height": 84,
-        "resizable": false,
-        "decorations": false,
-        "transparent": true,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "focus": false,
-        "shadow": false,
-        "visible": false
       }
     ],
     "security": {

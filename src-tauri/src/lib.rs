@@ -963,6 +963,37 @@ pub fn run() {
             // Apply launch-on-startup preference.
             sync_autostart(app.handle(), snapshot.launch_on_startup);
 
+            // ── Create the overlay window with a versioned URL ───────────
+            // WebView2 caches content by URL.  By loading the overlay from
+            // `tauri://localhost/?v=<version>`, each app release uses a URL
+            // that WebView2 has never seen, guaranteeing fresh content after
+            // every update.  (The query param is ignored by the protocol
+            // handler — it still serves index.html.)
+            {
+                let version = env!("CARGO_PKG_VERSION");
+                let url: tauri::Url = format!("tauri://localhost/?v={version}")
+                    .parse()
+                    .expect("valid overlay URL");
+
+                let _overlay = tauri::WebviewWindowBuilder::new(
+                    app,
+                    "overlay",
+                    tauri::WebviewUrl::External(url),
+                )
+                .title("")
+                .inner_size(440.0, 84.0)
+                .resizable(false)
+                .decorations(false)
+                .transparent(true)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .focused(false)
+                .shadow(false)
+                .visible(false)
+                .build()
+                .expect("create overlay window");
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
