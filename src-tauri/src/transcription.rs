@@ -211,23 +211,6 @@ fn load_engine(model_id: &str, model_dir: &Path) -> Result<Engine, String> {
     Err(format!("model '{model_id}' is not supported by this build"))
 }
 
-fn run_transcribe_onnx(engine: &mut Engine, samples: &[f32], language: Option<&str>) -> Result<String, String> {
-    match engine {
-        #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-        Engine::Onnx(model) => {
-            let mut options = TranscribeOptions::default();
-            if let Some(lang) = language {
-                options.language = Some(lang.to_string());
-            }
-            model
-                .transcribe(samples, &options)
-                .map(|r| r.text)
-                .map_err(|e| e.to_string())
-        }
-        Engine::Whisper(_) => Err("internal: whisper engine called via ONNX path".to_string()),
-    }
-}
-
 struct Loaded {
     model: Engine,
     model_id: String,
@@ -272,93 +255,77 @@ impl Transcriber {
     /// Transcribe 16 kHz mono f32 `samples`. Returns cleaned text (empty if it
     /// looks like a hallucination).
     ///
-    /// For Whisper models inference runs on a background thread and is capped at
-    /// WHISPER_TIMEOUT_SECS. The mutex is NOT held during inference so the app
-    /// remains responsive and new recordings can be queued.
+    /// Runs inference on an off-mutex background thread with safety timeout so
+    /// the app never freezes even on long audio or unsupported languages.
     pub fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
         let started = Instant::now();
 
-        // Check which engine type is loaded WITHOUT holding the lock during inference.
-        let is_whisper = {
-            let guard = self.loaded.lock().unwrap();
-            match guard.as_ref() {
-                None => return Err("no model loaded".to_string()),
-                Some(l) => matches!(l.model, Engine::Whisper(_)),
-            }
-        };
-
-        let text = if is_whisper {
-            // ── Whisper path ────────────────────────────────────────────────────
-            // Move the engine OUT of the mutex so the lock is free during inference.
-            // We put it back when the inference thread finishes (or we time out).
-            let (engine, model_id) = {
-                let mut guard = self.loaded.lock().unwrap();
-                let loaded = guard.take().ok_or("no model loaded")?;
-                (loaded.model, loaded.model_id)
-            };
-
-            let samples_owned: Vec<f32> = samples.to_vec();
-            let language_owned: Option<String> = language.map(|s| s.to_string());
-
-            // Channel carries (engine, inference_result) back to this thread.
-            let (tx, rx) = std::sync::mpsc::channel::<(Engine, Result<String, String>)>();
-
-            std::thread::spawn(move || {
-                let mut eng = engine;
-                let lang_ref: Option<&str> = language_owned.as_deref();
-                let result = match &mut eng {
-                    Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref),
-                    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-                    Engine::Onnx(_) => Err("unexpected ONNX in whisper path".to_string()),
-                };
-                // Send engine back unconditionally so it can be restored.
-                let _ = tx.send((eng, result));
-            });
-
-            match rx.recv_timeout(std::time::Duration::from_secs(WHISPER_TIMEOUT_SECS)) {
-                Ok((engine, Ok(text))) => {
-                    // Restore the engine into the mutex.
-                    let mut guard = self.loaded.lock().unwrap();
-                    *guard = Some(Loaded { model: engine, model_id, last_used: Instant::now() });
-                    text
-                }
-                Ok((_, Err(e))) => {
-                    // Inference failed; engine is abandoned, will reload next time.
-                    log::error!("Whisper inference error: {e}");
-                    return Err(e);
-                }
-                Err(_timeout) => {
-                    // The inference thread is still running (we can't kill it).
-                    // Give control back immediately; engine is abandoned and will
-                    // be reloaded on the next use.
-                    log::warn!(
-                        "Whisper inference timed out after {WHISPER_TIMEOUT_SECS}s — \
-                         engine abandoned, will reload next use"
-                    );
-                    return Err(format!(
-                        "Whisper transcription exceeded {WHISPER_TIMEOUT_SECS}s on CPU. \
-                         Use a faster model (Parakeet V3, Whisper Tiny/Base/Turbo)."
-                    ));
-                }
-            }
-        } else {
-            // ── ONNX path — mutex held for the duration (fast, <500 ms) ─────────
+        // Move the engine OUT of the mutex so the lock is NEVER held during inference.
+        // We put it back when the inference thread finishes (or time out).
+        let (engine, model_id) = {
             let mut guard = self.loaded.lock().unwrap();
-            let loaded = guard.as_mut().ok_or("no model loaded")?;
-            run_transcribe_onnx(&mut loaded.model, samples, language)?
+            let loaded = guard.take().ok_or("no model loaded")?;
+            (loaded.model, loaded.model_id)
         };
 
-        // Update last_used timestamp.
-        if let Ok(mut guard) = self.loaded.lock() {
-            if let Some(l) = guard.as_mut() {
-                l.last_used = Instant::now();
+        let samples_owned: Vec<f32> = samples.to_vec();
+        let language_owned: Option<String> = language.map(|s| s.to_string());
+
+        // Channel carries (engine, inference_result) back to this thread.
+        let (tx, rx) = std::sync::mpsc::channel::<(Engine, Result<String, String>)>();
+
+        std::thread::spawn(move || {
+            let mut eng = engine;
+            let lang_ref: Option<&str> = language_owned.as_deref();
+            let result = match &mut eng {
+                Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref),
+                #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+                Engine::Onnx(model) => {
+                    let mut options = TranscribeOptions::default();
+                    if let Some(lang) = lang_ref {
+                        options.language = Some(lang.to_string());
+                    }
+                    model
+                        .transcribe(&samples_owned, &options)
+                        .map(|r| r.text)
+                        .map_err(|e| e.to_string())
+                }
+            };
+            // Send engine back unconditionally so it can be restored.
+            let _ = tx.send((eng, result));
+        });
+
+        let timeout_secs = if model_id.starts_with("whisper") {
+            WHISPER_TIMEOUT_SECS
+        } else {
+            10
+        };
+
+        let text = match rx.recv_timeout(std::time::Duration::from_secs(timeout_secs)) {
+            Ok((engine, Ok(text))) => {
+                // Restore the engine into the mutex.
+                let mut guard = self.loaded.lock().unwrap();
+                *guard = Some(Loaded { model: engine, model_id: model_id.clone(), last_used: Instant::now() });
+                text
             }
-        }
+            Ok((_, Err(e))) => {
+                log::error!("Inference error for '{model_id}': {e}");
+                return Err(e);
+            }
+            Err(_timeout) => {
+                log::warn!("Inference timed out after {timeout_secs}s for '{model_id}'");
+                return Err(format!(
+                    "Transcription timed out after {timeout_secs}s. \
+                     Please try a different model supporting your language."
+                ));
+            }
+        };
 
         let text = text.trim().to_string();
         log::info!(
-            "Transcribed {:.1}s audio in {} ms -> {} chars",
+            "Transcribed {:.1}s audio with '{}' in {} ms -> {} chars",
             samples.len() as f32 / 16_000.0,
+            model_id,
             started.elapsed().as_millis(),
             text.len()
         );

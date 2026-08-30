@@ -60,8 +60,8 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v3",
         name: "Parakeet V3",
-        description: "⚖️ Balanced — fast and accurate. 25 languages with auto-detection.",
-        languages: "Multi-language",
+        description: "⚖️ Balanced — fast and accurate English model.",
+        languages: "English Only",
         size_bytes: 478 * 1024 * 1024,
         accuracy: 0.92,
         speed: 0.95,
@@ -69,11 +69,7 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
         sha256: "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77",
-        supported_lang_codes: &[
-            "en", "es", "fr", "de", "it", "pt", "ro", "nl", "ru", "pl", "uk",
-            "cs", "sv", "da", "fi", "el", "hi", "mr", "te", "ta", "ka", "be",
-            "hr", "hu", "ca",
-        ],
+        supported_lang_codes: &["en"],
     },
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v2",
