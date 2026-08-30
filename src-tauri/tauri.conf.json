@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Mumblr",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "identifier": "com.mumblr.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -10,6 +10,7 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Mumblr",
