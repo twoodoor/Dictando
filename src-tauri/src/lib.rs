@@ -461,9 +461,25 @@ fn finish_recording(app: AppHandle) {
             );
         }
 
+        // Check if effective model actually supports the chosen language.
+        if !models::is_model_compatible_with_language(&effective_model_id, lang_code) {
+            let model_name = models::catalog_entry(&effective_model_id)
+                .map(|e| e.name)
+                .unwrap_or(&effective_model_id);
+            let msg = format!(
+                "'{model_name}' is English-only and does not support {}. Please install a multilingual model (e.g. Whisper Turbo or Whisper Small) from the Models tab.",
+                cfg.language
+            );
+            log::warn!("{msg}");
+            let _ = app.emit("transcription-error", msg);
+            set_recording_state(&app, "idle");
+            return;
+        }
+
         let model_dir = models::model_dir(&state.app_data_dir, &effective_model_id);
         if let Err(e) = state.transcriber.ensure_loaded(&effective_model_id, &model_dir) {
             log::error!("{e}");
+            let _ = app.emit("transcription-error", format!("Failed to load model: {e}"));
             set_recording_state(&app, "idle");
             return;
         }

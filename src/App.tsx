@@ -73,7 +73,10 @@ export default function App() {
         }).catch(() => {});
       }
     });
-    return () => { offState(); offText(); };
+    const offErr = events.onTranscriptionError((err) => {
+      toast.error(err, { duration: 6000 });
+    });
+    return () => { offState(); offText(); offErr(); };
   }, [user]);
 
   const resolvedToast = theme === 'system' ? 'system' : theme;

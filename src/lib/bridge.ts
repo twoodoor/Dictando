@@ -193,6 +193,8 @@ export const events = {
     listen<DownloadProgress>('download-progress', h),
   onAudioLevel: (h: (level: number) => void) =>
     listen<number>('audio-level', h),
+  onTranscriptionError: (h: (err: string) => void) =>
+    listen<string>('transcription-error', h),
 };
 
 export interface AppUpdateInfo {

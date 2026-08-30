@@ -258,10 +258,15 @@ impl Transcriber {
     /// Runs inference on an off-mutex background thread with safety timeout so
     /// the app never freezes even on long audio or unsupported languages.
     pub fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
+        if samples.len() < 1600 {
+            // Less than 100ms of audio — nothing to transcribe.
+            return Ok(String::new());
+        }
+
         let started = Instant::now();
 
         // Move the engine OUT of the mutex so the lock is NEVER held during inference.
-        // We put it back when the inference thread finishes (or time out).
+        // We put it back when the inference thread finishes (or times out).
         let (engine, model_id) = {
             let mut guard = self.loaded.lock().unwrap();
             let loaded = guard.take().ok_or("no model loaded")?;
@@ -277,7 +282,7 @@ impl Transcriber {
         std::thread::spawn(move || {
             let mut eng = engine;
             let lang_ref: Option<&str> = language_owned.as_deref();
-            let result = match &mut eng {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &mut eng {
                 Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref),
                 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
                 Engine::Onnx(model) => {
@@ -290,7 +295,10 @@ impl Transcriber {
                         .map(|r| r.text)
                         .map_err(|e| e.to_string())
                 }
-            };
+            }))
+            .map_err(|_| "Model inference failed unexpectedly".to_string())
+            .and_then(|r| r);
+
             // Send engine back unconditionally so it can be restored.
             let _ = tx.send((eng, result));
         });

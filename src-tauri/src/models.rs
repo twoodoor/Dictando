@@ -328,6 +328,20 @@ pub fn best_model_for_language(app_data_dir: &Path, lang_code: Option<&str>) -> 
     candidates.first().map(|e| e.id)
 }
 
+/// Check if a model supports the given language code.
+pub fn is_model_compatible_with_language(model_id: &str, lang_code: Option<&str>) -> bool {
+    let Some(code) = lang_code else {
+        return true; // Auto-detect mode accepts any model
+    };
+    if let Some(entry) = catalog_entry(model_id) {
+        if entry.supported_lang_codes.is_empty() {
+            return true; // Universal (e.g. Whisper)
+        }
+        return entry.supported_lang_codes.contains(&code);
+    }
+    true
+}
+
 // ---------------------------------------------------------------------------
 // Download / install
 // ---------------------------------------------------------------------------
