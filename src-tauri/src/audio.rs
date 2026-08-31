@@ -92,23 +92,25 @@ impl Recorder {
             let buf_for_cb = thread_buffer.clone();
             let last_level = Mutex::new(std::time::Instant::now());
             let push = move |samples: &[f32]| {
-                let mono = downmix_to_mono(samples, channels);
-                let resampled = resample_linear(&mono, src_rate, TARGET_RATE);
-                if let Ok(mut b) = buf_for_cb.lock() {
-                    b.extend_from_slice(&resampled);
-                }
-                if let Some(ref cb) = on_level {
-                    if let Ok(mut last) = last_level.lock() {
-                        if last.elapsed() >= std::time::Duration::from_millis(25) {
-                            let sum_sq: f32 = mono.iter().map(|&s| s * s).sum();
-                            let rms = (sum_sq / mono.len().max(1) as f32).sqrt();
-                            // Sensitive gain so typical speech RMS (0.01..0.08) scales vibrantly
-                            let level = (rms * 20.0).min(1.0);
-                            cb(level);
-                            *last = std::time::Instant::now();
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let mono = downmix_to_mono(samples, channels);
+                    let resampled = resample_linear(&mono, src_rate, TARGET_RATE);
+                    if let Ok(mut b) = buf_for_cb.lock() {
+                        b.extend_from_slice(&resampled);
+                    }
+                    if let Some(ref cb) = on_level {
+                        if let Ok(mut last) = last_level.lock() {
+                            if last.elapsed() >= std::time::Duration::from_millis(25) {
+                                let sum_sq: f32 = mono.iter().map(|&s| s * s).sum();
+                                let rms = (sum_sq / mono.len().max(1) as f32).sqrt();
+                                // Sensitive gain so typical speech RMS (0.01..0.08) scales vibrantly
+                                let level = (rms * 20.0).min(1.0);
+                                cb(level);
+                                *last = std::time::Instant::now();
+                            }
                         }
                     }
-                }
+                }));
             };
 
             let stream = build_stream(&device, &config, sample_format, push, err_fn);

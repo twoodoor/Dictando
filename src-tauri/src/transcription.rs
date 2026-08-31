@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use whisper_rs::{
-    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters, WhisperState,
+    FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters,
 };
 
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
@@ -71,9 +71,7 @@ const WHISPER_TIMEOUT_SECS: u64 = 15;
 
 /// High-performance direct Whisper engine using greedy decoding & multi-threading.
 pub struct DirectWhisperEngine {
-    #[allow(dead_code)]
     context: WhisperContext,
-    state: WhisperState,
 }
 
 impl DirectWhisperEngine {
@@ -85,11 +83,8 @@ impl DirectWhisperEngine {
         let path_str = model_path.to_str().ok_or("invalid model path")?;
         let context = WhisperContext::new_with_params(path_str, context_params)
             .map_err(|e| format!("failed to load whisper model: {e}"))?;
-        let state = context
-            .create_state()
-            .map_err(|e| format!("failed to create whisper state: {e}"))?;
 
-        Ok(Self { context, state })
+        Ok(Self { context })
     }
 
     /// Run inference. This call can block for seconds on CPU.
@@ -118,14 +113,19 @@ impl DirectWhisperEngine {
         params.set_temperature(0.0);
         params.set_temperature_inc(0.0);
 
-        self.state
+        let mut state = self
+            .context
+            .create_state()
+            .map_err(|e| format!("failed to create whisper state: {e}"))?;
+
+        state
             .full(params, samples)
             .map_err(|e| format!("whisper inference failed: {e}"))?;
 
-        let num_segments = self.state.full_n_segments();
+        let num_segments = state.full_n_segments();
         let mut full_text = String::new();
         for i in 0..num_segments {
-            if let Some(segment) = self.state.get_segment(i) {
+            if let Some(segment) = state.get_segment(i) {
                 if let Ok(text) = segment.to_str() {
                     full_text.push_str(text);
                 }
