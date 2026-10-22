@@ -591,7 +591,8 @@ fn finish_recording(app: AppHandle) {
                     id: unique_id(),
                     text: final_text.clone(),
                     duration_ms: (samples.len() as u64 * 1000) / 16_000,
-                    engine: cfg.active_model_id.clone(),
+                    // The model that actually ran (smart routing may differ from the selection).
+                    engine: effective_model_id.clone(),
                     timestamp: now_ms(),
                     favorite: false,
                 };

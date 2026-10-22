@@ -1,4 +1,4 @@
-﻿//! Hybrid AI enhancement layer — local-first, cloud-optional.
+//! Hybrid AI enhancement layer — local-first, cloud-optional.
 //!
 //! Tier 1 (instant, <1 ms): Local cleanup — filler removal, consecutive
 //! deduplication (words *and* short phrases), standalone-"I" capitalisation,
@@ -174,25 +174,40 @@ fn remove_consecutive_duplicates(text: &str) -> String {
     if words.is_empty() {
         return String::new();
     }
-    let mut kept = vec![words[0]];
+    let mut kept = vec![words[0].to_string()];
     for w in &words[1..] {
-        let prev = kept.last().unwrap().trim_matches(|c: char| c.is_ascii_punctuation());
+        let last = kept.last_mut().unwrap();
+        let prev = last.trim_matches(|c: char| c.is_ascii_punctuation());
         let curr = w.trim_matches(|c: char| c.is_ascii_punctuation());
-        if !prev.eq_ignore_ascii_case(curr) {
-            kept.push(w);
+        if prev.eq_ignore_ascii_case(curr) {
+            *last = carry_trailing_punct(last, w);
+        } else {
+            kept.push(w.to_string());
         }
     }
     kept.join(" ")
 }
 
+/// `kept` plus the trailing punctuation of the `dropped` duplicate, when `kept`
+/// has none of its own — so deduping "this this?" keeps the "?".
+fn carry_trailing_punct(kept: &str, dropped: &str) -> String {
+    let core = dropped.trim_end_matches(|c: char| c.is_ascii_punctuation());
+    let tail = &dropped[core.len()..];
+    if tail.is_empty() || kept.ends_with(|c: char| c.is_ascii_punctuation()) {
+        kept.to_string()
+    } else {
+        format!("{kept}{tail}")
+    }
+}
+
 /// Remove short repeated phrases (2-5 words) that appear back-to-back.
 /// Catches stutter-restart patterns like "I want to I want to go to the store".
 fn remove_duplicate_phrases(text: &str) -> String {
-    let mut kept: Vec<&str> = text.split_whitespace().collect();
+    let mut kept: Vec<String> = text.split_whitespace().map(str::to_string).collect();
 
     // Try window sizes from 5 down to 2.
     for window in (2..=5usize).rev() {
-        let mut new_kept: Vec<&str> = Vec::with_capacity(kept.len());
+        let mut new_kept: Vec<String> = Vec::with_capacity(kept.len());
         let mut i = 0;
         while i < kept.len() {
             if i + window * 2 <= kept.len() {
@@ -204,12 +219,13 @@ fn remove_duplicate_phrases(text: &str) -> String {
                     xc.eq_ignore_ascii_case(yc)
                 });
                 if matches {
-                    new_kept.extend_from_slice(a);
+                    new_kept.extend_from_slice(&a[..window - 1]);
+                    new_kept.push(carry_trailing_punct(&a[window - 1], &b[window - 1]));
                     i += window * 2;
                     continue;
                 }
             }
-            new_kept.push(kept[i]);
+            new_kept.push(kept[i].clone());
             i += 1;
         }
         kept = new_kept;
@@ -238,16 +254,195 @@ fn capitalize_standalone_i(text: &str) -> String {
         .join(" ")
 }
 
-/// Basic punctuation fixes: capitalise first letter and after sentence endings,
-/// ensure the text ends with punctuation.
+// --- Question detection (English heuristics) ---
+//
+// Some engines (notably SenseVoice) end spoken questions with "." instead of
+// "?". These lists let `mark_questions` recognise a question from how the
+// sentence opens ("Can you…", "Is the…", "How's…") or a closing tag
+// ("…, right"). Patterns are deliberately two-word so statements such as
+// "Do not change it" or "Have a look" are left alone.
+
+/// Auxiliaries that open a question before any subject ("Is the…", "Can it…").
+const AUX_ANY_SUBJECT: &[&str] = &[
+    "is", "are", "am", "was", "were", "does", "did", "can", "could", "will", "would",
+    "should", "has", "isn't", "aren't", "wasn't", "weren't", "doesn't", "didn't", "can't",
+    "couldn't", "won't", "wouldn't", "shouldn't", "hasn't",
+];
+/// Auxiliaries that only open a question before a personal pronoun — they also
+/// start imperatives ("Do it now", "Have a look", "May the best team win").
+const AUX_PRONOUN_SUBJECT: &[&str] = &["do", "don't", "have", "haven't", "may", "shall"];
+const PRONOUNS: &[&str] = &["i", "you", "we", "they"];
+const SUBJECTS: &[&str] = &[
+    "i", "you", "we", "they", "he", "she", "it", "there", "this", "that", "these", "those",
+    "the", "a", "an", "my", "your", "our", "their", "his", "her", "its", "any", "anyone",
+    "anybody", "anything", "someone", "somebody", "something", "everyone", "everybody",
+    "everything", "all", "some", "every", "each",
+];
+const WH_WORDS: &[&str] = &["what", "when", "where", "why", "who", "whom", "whose", "which", "how"];
+/// WH-words that also introduce relative clauses (", which is…", ", who can…"),
+/// so they only count at the start of a sentence.
+const RELATIVE_WH: &[&str] = &["which", "who", "whom", "whose"];
+/// Non-auxiliary words that still make a WH-opener a question ("How about…").
+const WH_FOLLOWERS: &[&str] = &[
+    "about", "much", "many", "long", "often", "far", "come", "one", "ones", "of", "if", "not",
+];
+/// Lead-in words skipped before checking the opener ("So can you…", "Or is it…").
+const LEAD_INS: &[&str] = &[
+    "and", "but", "or", "so", "also", "okay", "ok", "oh", "hey", "please", "alright", "um", "uh",
+];
+/// Closing clauses that turn a statement into a question ("…, right").
+const QUESTION_TAGS: &[&str] = &[
+    "right", "correct", "is that right", "isn't it", "isn't that right", "aren't you",
+    "aren't they", "aren't we", "don't you", "don't you think", "doesn't it", "didn't you",
+    "didn't it", "didn't we", "won't you", "wouldn't you", "can't you",
+];
+
+/// Lowercase a word, normalise curly apostrophes, strip surrounding punctuation.
+fn normalize_word(w: &str) -> String {
+    w.replace('\u{2019}', "'")
+        .trim_matches(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .to_lowercase()
+}
+
+fn clause_words(clause: &str) -> Vec<String> {
+    clause
+        .split_whitespace()
+        .map(normalize_word)
+        .filter(|w| !w.is_empty())
+        .collect()
+}
+
+/// Does this clause open like a question? `initial` = start of the sentence
+/// (relative-clause WH-words like "which"/"who" only count there).
+fn opens_question(words: &[String], initial: bool) -> bool {
+    let mut i = 0;
+    let mut dropped_so = false;
+    while i < words.len() && LEAD_INS.contains(&words[i].as_str()) {
+        dropped_so |= words[i] == "so";
+        i += 1;
+    }
+    let w = &words[i..];
+    // "So do I" / "So can we" are statements, not questions.
+    if w.len() < 2 || (dropped_so && w.len() < 3) {
+        return false;
+    }
+    let (first, second) = (w[0].as_str(), w[1].as_str());
+
+    if AUX_ANY_SUBJECT.contains(&first) {
+        return SUBJECTS.contains(&second);
+    }
+    if AUX_PRONOUN_SUBJECT.contains(&first) {
+        return PRONOUNS.contains(&second);
+    }
+    // WH-contractions: "what's", "how's", "who'd", "where're"…
+    let (wh, contracted) = match first.split_once('\'') {
+        Some((stem, _)) => (stem, true),
+        None => (first, false),
+    };
+    if !WH_WORDS.contains(&wh) || (!initial && RELATIVE_WH.contains(&wh)) {
+        return false;
+    }
+    if contracted {
+        return true;
+    }
+    if first == "which" && second == "is" && w.get(2).map(String::as_str) == Some("why") {
+        return false; // "Which is why we left."
+    }
+    AUX_ANY_SUBJECT.contains(&second)
+        || AUX_PRONOUN_SUBJECT.contains(&second)
+        || WH_FOLLOWERS.contains(&second)
+}
+
+/// Is this sentence (without its terminator) a question?
+fn is_question(sentence: &str) -> bool {
+    let clauses: Vec<Vec<String>> = sentence
+        .split(',')
+        .map(clause_words)
+        .filter(|c| !c.is_empty())
+        .collect();
+    let (Some(first), Some(last)) = (clauses.first(), clauses.last()) else {
+        return false;
+    };
+    let multi = clauses.len() > 1;
+    // "Should you need anything, let me know." is a conditional, not a question.
+    let conditional = multi && first[0] == "should";
+    if !conditional && opens_question(first, true) {
+        return true;
+    }
+    multi && (opens_question(last, false) || QUESTION_TAGS.contains(&last.join(" ").as_str()))
+}
+
+/// Replace the "." (or missing terminator) of every question sentence with "?".
+/// Also splits run-ons where a comma precedes a capitalised question
+/// ("…a model thing, Can we fix it" → "…a model thing? Can we fix it?").
+fn mark_questions(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    let mut start = 0;
+    let mut iter = text.char_indices().peekable();
+    while let Some((i, ch)) = iter.next() {
+        let ends_sentence = matches!(ch, '.' | '!' | '?')
+            && iter.peek().map_or(true, |&(_, next)| next.is_whitespace());
+        if ends_sentence {
+            push_sentence(&mut out, &text[start..i], Some(ch));
+            start = i + ch.len_utf8();
+        }
+    }
+    if start < text.len() {
+        push_sentence(&mut out, &text[start..], None);
+    }
+    out
+}
+
+fn push_sentence(out: &mut String, body: &str, term: Option<char>) {
+    // Only rewrite plain "." endings (not "!", "?" or an ellipsis) or none at all.
+    let convertible = match term {
+        Some('.') => !body.ends_with('.'),
+        None => true,
+        Some(_) => false,
+    };
+    if !convertible || body.trim().is_empty() {
+        out.push_str(body);
+        out.extend(term);
+        return;
+    }
+
+    let mut body = body.to_string();
+    let mut seg = 0; // start of the current sentence within `body`
+    loop {
+        let rest = &body[seg..];
+        let split = rest.match_indices(", ").map(|(j, _)| j).find(|&j| {
+            let after = &rest[j + 2..];
+            let capitalised = after.chars().next().is_some_and(char::is_uppercase);
+            let next_clause = after.split(',').next().unwrap_or("");
+            capitalised
+                && opens_question(&clause_words(next_clause), true)
+                && is_question(&rest[..j])
+        });
+        let Some(j) = split else { break };
+        body.replace_range(seg + j..seg + j + 1, "?");
+        seg += j + 2;
+    }
+
+    let question = is_question(&body[seg..]);
+    out.push_str(&body);
+    match term {
+        _ if question => out.push('?'),
+        Some(t) => out.push(t),
+        None => {}
+    }
+}
+
+/// Basic punctuation fixes: turn questions' "." into "?", capitalise first
+/// letter and after sentence endings, ensure the text ends with punctuation.
 fn fix_punctuation(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();
     }
+    let marked = mark_questions(trimmed);
 
-    let mut result = String::with_capacity(trimmed.len() + 2);
-    let mut chars = trimmed.chars();
+    let mut result = String::with_capacity(marked.len() + 2);
+    let mut chars = marked.chars();
 
     // Capitalise the very first character.
     if let Some(first) = chars.next() {
@@ -260,7 +455,8 @@ fn fix_punctuation(text: &str) -> String {
     // Capitalise after sentence-ending punctuation.
     let mut out = String::with_capacity(result.len());
     let mut cap_next = false;
-    for ch in result.chars() {
+    let mut iter = result.chars().peekable();
+    while let Some(ch) = iter.next() {
         if cap_next && ch.is_alphabetic() {
             for c in ch.to_uppercase() {
                 out.push(c);
@@ -269,7 +465,8 @@ fn fix_punctuation(text: &str) -> String {
         } else {
             out.push(ch);
             if ch == '.' || ch == '!' || ch == '?' {
-                cap_next = true;
+                // Only a real sentence break: "FAL.ai" / "e.g." stay lowercase.
+                cap_next = iter.peek().is_some_and(|n| n.is_whitespace());
             } else if ch != ' ' {
                 cap_next = false;
             }
@@ -549,6 +746,66 @@ mod tests {
         let o = opts();
         let r = local_cleanup("hello world", &o);
         assert!(r.starts_with("Hello"), "first letter should be capitalised: {r}");
+    }
+
+    /// Local cleanup with only punctuation fixing on (matches a common setup).
+    fn punct(text: &str) -> String {
+        let o = AiEnhanceOptions { remove_fillers: false, ..opts() };
+        local_cleanup(text, &o)
+    }
+
+    #[test]
+    fn questions_get_question_marks() {
+        let cases = [
+            ("Do you still need my help.", "Do you still need my help?"),
+            ("are you sure it was merged", "Are you sure it was merged?"),
+            ("Or can you merge it to yourself.", "Or can you merge it to yourself?"),
+            ("Hey, mate, how's it going.", "Hey, mate, how's it going?"),
+            ("What do you think about this.", "What do you think about this?"),
+            ("Is there anything I can send today.", "Is there anything I can send today?"),
+            ("You're working in the right project, right.", "You're working in the right project, right?"),
+            (
+                "I will leave in 40 minutes. Is there anything I can send to the client today.",
+                "I will leave in 40 minutes. Is there anything I can send to the client today?",
+            ),
+            (
+                "Is that a code thing or is that a model thing, Can we fix it.",
+                "Is that a code thing or is that a model thing? Can we fix it?",
+            ),
+        ];
+        for (input, want) in cases {
+            assert_eq!(punct(input), want, "input: {input}");
+        }
+    }
+
+    #[test]
+    fn statements_keep_periods() {
+        let cases = [
+            "Do not change the finishes.",
+            "Do it now.",
+            "Have a look at the file.",
+            "If you have a better idea, let me know.",
+            "Should you need anything, let me know.",
+            "I talked to John, who is the manager.",
+            "We got the file, which is great.",
+            "Which is why we left.",
+            "So do I.",
+            "Please let me know if the plugins are easy to install.",
+            "What postponed.",
+            "Can you...",
+            "Great!",
+            "Swap Gemini for the FAL.ai API.",
+        ];
+        for input in cases {
+            assert_eq!(punct(input), input, "statement changed");
+        }
+    }
+
+    #[test]
+    fn dedupe_keeps_question_mark() {
+        let o = AiEnhanceOptions { fix_punctuation: false, ..opts() };
+        assert_eq!(local_cleanup("Can you check this this?", &o), "Can you check this?");
+        assert_eq!(local_cleanup("Is it ready is it ready?", &o), "Is it ready?");
     }
 
     #[test]
