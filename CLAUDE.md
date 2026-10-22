@@ -14,8 +14,8 @@ It is being rebuilt from a Python/PyWebView wrapper into a **native Tauri deskto
 |---|---|---|
 | Desktop shell | **Tauri** (Rust) | `src-tauri/` *(being built)* |
 | Transcription engine | **`transcribe-rs`** crate — hybrid: ONNX (Parakeet/Moonshine/SenseVoice) **and** whisper.cpp (OpenAI Whisper GGML) on every target except Intel macOS, which is whisper.cpp-only | `src-tauri/src/transcription.rs` |
-| Audio capture | `cpal` + `rubato` (16 kHz mono) | `src-tauri/src/audio.rs` |
-| VAD | `vad-rs` (Silero) | `src-tauri/src/vad.rs` |
+| Audio capture | `cpal` at the device rate → one-pass windowed-sinc resample to 16 kHz mono on stop; start cue waits for the first audio callback; 250 ms tail after key-up | `src-tauri/src/audio.rs` |
+| VAD | *none yet* (planned: Silero) — Whisper's silence hallucinations are filtered by an energy check in `transcription.rs` | — |
 | Global shortcuts / push-to-talk | `rdev` / `tauri-plugin-global-shortcut` | `src-tauri/src/shortcuts.rs` |
 | Text injection | `enigo` + clipboard | `src-tauri/src/inject.rs` |
 | AI enhancement (opt-in) | Gemini (`@google/genai`) | `src-tauri/src/ai.rs` |
@@ -69,6 +69,9 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 > **Build prerequisites (whisper-cpp):** the `whisper-cpp` feature compiles whisper.cpp from C++ source and generates FFI bindings with `bindgen`, so every build host (dev + CI) needs **two tools on top of the MSVC toolchain Tauri already requires on Windows**:
 > 1. **CMake** on `PATH` — `winget install Kitware.CMake` / `brew install cmake` / distro package.
 > 2. **LLVM/libclang** (bindgen dependency) — `winget install LLVM.LLVM` (Windows) / `brew install llvm` (macOS) / `libclang-dev` (Linux). On Windows, point bindgen at it: `LIBCLANG_PATH=C:\Program Files\LLVM\bin`.
+> 3. **`.cargo/config.toml`** (repo root) sets `CMAKE_{C,CXX}_FLAGS_{RELEASE,RELWITHDEBINFO}=-O2 -DNDEBUG`. Without it, the `cmake` crate drops `/O2` under MSVC and whisper.cpp builds unoptimised (Whisper models time out). After touching it, run `cargo clean -p whisper-rs-sys` (and with `--release`).
+>
+> **Accuracy benchmark:** `transcription::tests::bench_models` (ignored by default) runs every installed model over WAV clips and reports WER and latency: `BENCH_DIR=<dir with sentences.txt + NN_*.wav> cargo test --release --lib bench_models -- --ignored --nocapture`.
 
 > **Platform note:** dev environment is Windows + PowerShell. The `clean` script uses `rm -rf` (Unix-only) — prefer `rimraf` for cross-platform.
 
@@ -95,7 +98,8 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 ## Known issues / tech debt
 
 - **Hardcoded Google OAuth client secret** in `windows_app/dictando.py:32-33` — must not be carried into the Tauri app; rotate and remove.
-- `audio.rs` uses a linear resampler (adequate for 16 kHz speech); consider `rubato` for higher quality.
+- **Whisper is slow on CPU** even when optimised (5950X: Small ~2.6 s, Turbo ~13 s per utterance, because it always encodes a 30 s window). Parakeet v3 is as accurate on the benchmark at ~0.3 s. Options: `audio_ctx` scaled to clip length, GPU/Vulkan build.
+- **Smart model routing** keeps the selected model when it supports the language and otherwise falls back to the most accurate installed one. It used to pick the *fastest*, which silently ran SenseVoice for every English dictation.
 - **Phase B pending:** two-phase paste (paste local-cleaned text instantly, async cloud cleanup replaces), hotkey conflict detection UI, overlay latency reduction.
 - **Phase C pending:** SenseVoice Small (70 ms, NAR, 50+ langs) and Moonshine Tiny/Base (55–107 ms, English) to add to model catalog.
 

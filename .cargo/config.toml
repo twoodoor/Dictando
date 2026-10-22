@@ -1,0 +1,19 @@
+# whisper.cpp optimisation fix (docs/devlog/2026-10-22-dictation-accuracy-overhaul.md).
+#
+# With MSVC and the default Visual Studio generator, the `cmake` crate replaces
+# CMake's CMAKE_<LANG>_FLAGS_<CONFIG> with cc-rs flags that carry no /O2, so
+# ggml + whisper.cpp were compiled unoptimised (/Od) even in release builds and
+# Whisper models timed out. whisper-rs-sys forwards CMAKE_* environment
+# variables as CMake defines, and the `cmake` crate leaves a variable alone once
+# it is defined, so these restore optimisation. "-O2 -DNDEBUG" is valid for
+# MSVC, clang and gcc alike. (RelWithDebInfo is what whisper-rs-sys uses for
+# debug/`tauri dev` builds.)
+#
+# Lives at the repo root so it applies whether cargo runs from here
+# (--manifest-path src-tauri/Cargo.toml) or from src-tauri/ (Tauri CLI).
+# After changing it: cargo clean -p whisper-rs-sys (and --release).
+[env]
+CMAKE_C_FLAGS_RELEASE = "-O2 -DNDEBUG"
+CMAKE_CXX_FLAGS_RELEASE = "-O2 -DNDEBUG"
+CMAKE_C_FLAGS_RELWITHDEBINFO = "-O2 -DNDEBUG"
+CMAKE_CXX_FLAGS_RELWITHDEBINFO = "-O2 -DNDEBUG"

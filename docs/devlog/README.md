@@ -4,6 +4,9 @@ Running record of significant changes, decisions, and their rationale during the
 
 **How to use:** for every meaningful change, add a dated entry file named `YYYY-MM-DD-<topic>.md` and link it in the index below. Each entry follows the template at the bottom. Keep `CLAUDE.md` (+ `GEMINI.md`/`AGENTS.md`) in sync when architecture changes.
 
+- [2026-10-22 — Dictation accuracy overhaul: routing, capture, resampling, Whisper build](./2026-10-22-dictation-accuracy-overhaul.md)
+- [2026-10-22 — Unicode-safe Dictionary term matching (`preserve_custom_words` panic fix)](./2026-10-22-custom-words-utf8-fix.md)
+- [2026-10-22 — Context-aware filler removal that keeps punctuation](./2026-10-22-context-aware-filler-removal.md)
 - [2026-10-22 — Question-mark detection in local cleanup](./2026-10-22-question-mark-detection.md)
 - [2026-08-31 — Transcription & overlay stability hardening (v0.3.11 → v0.3.15)](./2026-08-31-transcription-stability-hardening.md)
 - [2026-08-25 — Dynamic animated listening pill & mouse-aware screen targeting](./2026-08-25-dynamic-animated-listening-pill.md)

@@ -46,7 +46,7 @@ pub struct CatalogEntry {
     /// Expected SHA-256 of the downloaded artifact (Phase 2 verification).
     pub sha256: &'static str,
     /// ISO-639-1 codes this model can transcribe. Empty = all languages
-    /// (e.g. Whisper). Used by smart routing to pick the fastest model.
+    /// (e.g. Whisper). Used by smart routing to find a model for the language.
     pub supported_lang_codes: &'static [&'static str],
 }
 
@@ -60,8 +60,8 @@ pub const CATALOG: &[CatalogEntry] = &[
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v3",
         name: "Parakeet V3",
-        description: "⚖️ Balanced — fast and accurate English model.",
-        languages: "English Only",
+        description: "⚖️ Balanced — fast and accurate. English + 24 European languages.",
+        languages: "25 European languages",
         size_bytes: 478 * 1024 * 1024,
         accuracy: 0.92,
         speed: 0.95,
@@ -69,7 +69,11 @@ pub const CATALOG: &[CatalogEntry] = &[
         supports_translation: false,
         download_url: "https://blob.handy.computer/parakeet-v3-int8.tar.gz",
         sha256: "43d37191602727524a7d8c6da0eef11c4ba24320f5b4730f1a2497befc2efa77",
-        supported_lang_codes: &["en"],
+        // NVIDIA model card: 25 European languages (auto-detected).
+        supported_lang_codes: &[
+            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
+            "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+        ],
     },
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v2",
@@ -283,15 +287,17 @@ pub fn catalog_entry(model_id: &str) -> Option<&'static CatalogEntry> {
     CATALOG.iter().find(|e| e.id == model_id)
 }
 
-/// Pick the fastest installed model that supports `lang_code`.
-///
-/// * `lang_code == None` → auto-detect mode: prefer the fastest multilingual model.
-/// * `lang_code == Some("en")` → prefer the fastest model with English support.
-/// * `lang_code == Some("es")` → prefer the fastest model supporting Spanish, etc.
+/// Pick the model to run for `lang_code`: the user's `active_model_id` when it
+/// is installed and supports the language, otherwise the most accurate
+/// installed model that does (`None` = auto-detect → multilingual models only).
 ///
 /// Returns `None` if no installed model can handle the language, so the caller
 /// should fall back to the user's manually selected model.
-pub fn best_model_for_language(app_data_dir: &Path, lang_code: Option<&str>) -> Option<&'static str> {
+pub fn best_model_for_language(
+    app_data_dir: &Path,
+    active_model_id: &str,
+    lang_code: Option<&str>,
+) -> Option<&'static str> {
     let formats = supported_formats();
 
     fn supports(entry: &CatalogEntry, lang: Option<&str>) -> bool {
@@ -306,26 +312,34 @@ pub fn best_model_for_language(app_data_dir: &Path, lang_code: Option<&str>) -> 
         }
     }
 
-    let mut candidates: Vec<&CatalogEntry> = CATALOG
+    let usable = |e: &&CatalogEntry| {
+        formats.contains(&e.format)
+            // Rejected by `load_engine` as too slow for CPU dictation.
+            && !matches!(e.id, "whisper-medium" | "whisper-large")
+            && is_installed(app_data_dir, e.id)
+            && supports(e, lang_code)
+    };
+
+    // The model the user picked wins whenever it can handle the language.
+    // Routing used to prefer the *fastest* model, which silently swapped
+    // Whisper Turbo / Parakeet for SenseVoice on every English dictation.
+    if let Some(active) = CATALOG.iter().find(|e| e.id == active_model_id) {
+        if usable(&active) {
+            return Some(active.id);
+        }
+    }
+
+    // Otherwise fall back to the most accurate installed model for the language.
+    CATALOG
         .iter()
-        .filter(|e| formats.contains(&e.format))
-        .filter(|e| is_installed(app_data_dir, e.id))
-        .filter(|e| supports(e, lang_code))
-        .collect();
-
-    // Sort by speed descending (fastest first), tie-break by accuracy descending.
-    candidates.sort_by(|a, b| {
-        b.speed
-            .partial_cmp(&a.speed)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then(
-                b.accuracy
-                    .partial_cmp(&a.accuracy)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-            )
-    });
-
-    candidates.first().map(|e| e.id)
+        .filter(usable)
+        .max_by(|a, b| {
+            a.accuracy
+                .partial_cmp(&b.accuracy)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(a.speed.partial_cmp(&b.speed).unwrap_or(std::cmp::Ordering::Equal))
+        })
+        .map(|e| e.id)
 }
 
 /// Check if a model supports the given language code.

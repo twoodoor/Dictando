@@ -404,51 +404,74 @@ fn begin_recording(app: AppHandle) {
     let on_level = Box::new(move |lvl: f32| {
         let _ = app_handle.emit("audio-level", lvl);
     });
-    match state.recorder.start(&cfg.microphone_id, Some(on_level)) {
-        Ok(()) => {
-            set_recording_state(&app, "recording");
-            if cfg.audio_feedback {
-                state.sounds.play_start();
+    let ready = match state.recorder.start(&cfg.microphone_id, Some(on_level)) {
+        Ok(ready) => ready,
+        Err(e) => {
+            log::error!("failed to start recording: {e}");
+            return;
+        }
+    };
+    // Show the overlay and play the start cue only once audio is really
+    // flowing. Opening the device takes tens to hundreds of ms, and words
+    // spoken before that are never captured, so this is the "talk now" signal.
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        match ready.wait() {
+            Ok(ms) => {
+                log::info!("microphone live after {ms} ms");
+                if state.recorder.is_recording() {
+                    set_recording_state(&app, "recording");
+                    if cfg.audio_feedback {
+                        state.sounds.play_start();
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("{e}");
+                if state.recorder.stop().is_ok() {
+                    let _ = app.emit("transcription-error", format!("Microphone error: {e}"));
+                    set_recording_state(&app, "idle");
+                }
             }
         }
-        Err(e) => log::error!("failed to start recording: {e}"),
-    }
+    });
 }
 
 /// Stop capture, transcribe on a background thread, inject the result, and emit
 /// a `transcription` event. Never blocks the caller (e.g. the shortcut handler).
 fn finish_recording(app: AppHandle) {
-    {
-        let state = app.state::<AppState>();
-        if !state.recorder.is_recording() {
-            return;
-        }
-        // Fire on key-up, before the (slower) transcription thread spawns.
-        if state.settings.get().audio_feedback {
-            state.sounds.play_finish();
-        }
+    if !app.state::<AppState>().recorder.is_recording() {
+        return;
     }
     std::thread::spawn(move || {
         let state = app.state::<AppState>();
         let cfg = state.settings.get();
 
+        // Keep listening briefly: the last word is often still being spoken
+        // when the key comes up, and cutting it off loses it entirely.
+        std::thread::sleep(std::time::Duration::from_millis(audio::TAIL_MS));
         let samples = match state.recorder.stop() {
             Ok(s) => s,
+            // Another stop (a double release, a mic error) already took it.
             Err(e) => {
-                log::error!("failed to stop recording: {e}");
-                set_recording_state(&app, "idle");
+                log::warn!("stop recording: {e}");
                 return;
             }
         };
+        // Finish cue after the tail, so the mic doesn't record the chime.
+        if cfg.audio_feedback {
+            state.sounds.play_finish();
+        }
         log::info!("captured {} samples (~{:.1}s)", samples.len(), samples.len() as f32 / 16_000.0);
         set_recording_state(&app, "transcribing");
 
         let lang_code = transcription::language_to_code(&cfg.language);
 
         // ── Smart model routing ─────────────────────────────────────────
-        // If enabled, pick the fastest installed model for this language.
+        // If enabled, keep the selected model when it supports the language;
+        // otherwise use the most accurate installed model that does.
         let effective_model_id = if cfg.smart_model_routing {
-            models::best_model_for_language(&state.app_data_dir, lang_code)
+            models::best_model_for_language(&state.app_data_dir, &cfg.active_model_id, lang_code)
                 .map(|id| id.to_string())
                 .unwrap_or_else(|| cfg.active_model_id.clone())
         } else {
@@ -485,7 +508,7 @@ fn finish_recording(app: AppHandle) {
         }
 
         let lang_code = transcription::language_to_code(&cfg.language);
-        match state.transcriber.transcribe(&samples, lang_code) {
+        match state.transcriber.transcribe(&samples, lang_code, &cfg.custom_words) {
             Ok(raw) if !raw.is_empty() => {
 
                 // ── Phase 1: Local cleanup → paste instantly ───────────────
@@ -577,6 +600,13 @@ fn finish_recording(app: AppHandle) {
                             }
                             Err(e) => {
                                 log::warn!("phase-2 cloud enhance failed: {e}");
+                                // Used to be log-only, so a dead API key or
+                                // retired model silently disabled the user's
+                                // custom instructions.
+                                let _ = app2.emit(
+                                    "transcription-error",
+                                    format!("AI cleanup failed ({e}). The local version was pasted."),
+                                );
                             }
                         }
                     });

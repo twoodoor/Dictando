@@ -41,6 +41,38 @@ pub fn is_hallucination(text: &str) -> bool {
     cleaned.is_empty() || HALLUCINATIONS.contains(&cleaned)
 }
 
+/// Does the recording contain at least ~300 ms of audio clearly above its own
+/// noise floor? Whisper's stock phrases ("Thank you.", "You") are only junk
+/// when there was no real speech — a dictated "Thank you." must survive.
+pub fn has_speech(samples: &[f32]) -> bool {
+    const FRAME: usize = 320; // 20 ms at 16 kHz
+    let mut levels: Vec<f32> = samples
+        .chunks(FRAME)
+        .map(|f| (f.iter().map(|s| s * s).sum::<f32>() / f.len() as f32).sqrt())
+        .collect();
+    if levels.is_empty() {
+        return false;
+    }
+    let loud: Vec<f32> = levels.clone();
+    levels.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let floor = levels[levels.len() / 10];
+    let threshold = (floor * 4.0).max(0.01);
+    loud.iter().filter(|&&l| l > threshold).count() >= 15
+}
+
+/// Whisper initial prompt built from the user's Dictionary, so names and
+/// jargon ("Athmo", "Tauri") come out spelled the user's way. Whisper reads the
+/// prompt as preceding context; it caps it at ~224 tokens, so keep it short.
+fn vocabulary_prompt(custom_words: &[String]) -> Option<String> {
+    let words: Vec<String> = custom_words
+        .iter()
+        .map(|w| w.replace('\0', "").trim().to_string())
+        .filter(|w| !w.is_empty())
+        .take(60)
+        .collect();
+    (!words.is_empty()).then(|| format!("{}.", words.join(", ")))
+}
+
 /// Convert display language name to standard ISO-639-1 language code.
 pub fn language_to_code(lang: &str) -> Option<&'static str> {
     match lang {
@@ -67,7 +99,12 @@ pub fn language_to_code(lang: &str) -> Option<&'static str> {
 /// Whisper inference timeout. Whisper.cpp BLAS kernels block in a single C call
 /// for the entire inference duration and never return to Rust, so abort callbacks
 /// don't help for large models. We use a thread + channel timeout instead.
-const WHISPER_TIMEOUT_SECS: u64 = 15;
+///
+/// Whisper always encodes a full 30 s window, so its cost barely depends on
+/// clip length: on a Ryzen 9 5950X (CPU, AVX2) Small takes ~2.6 s and Turbo
+/// ~13 s per utterance. 15 s timed Turbo out on ordinary dictations and lost
+/// them; a late result beats no result.
+const WHISPER_TIMEOUT_SECS: u64 = 60;
 
 /// High-performance direct Whisper engine using greedy decoding & multi-threading.
 pub struct DirectWhisperEngine {
@@ -89,7 +126,12 @@ impl DirectWhisperEngine {
 
     /// Run inference. This call can block for seconds on CPU.
     /// Call from a dedicated thread; the caller enforces the timeout.
-    pub fn transcribe(&mut self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
+    pub fn transcribe(
+        &mut self,
+        samples: &[f32],
+        language: Option<&str>,
+        prompt: Option<&str>,
+    ) -> Result<String, String> {
         // Optimal thread count for whisper.cpp on multi-core CPUs is 4-8.
         // Higher counts (16-32) cause L3 cache thrashing across CCX dies.
         let threads = std::thread::available_parallelism()
@@ -112,6 +154,9 @@ impl DirectWhisperEngine {
         // Disable temperature fallback — single greedy pass only.
         params.set_temperature(0.0);
         params.set_temperature_inc(0.0);
+        if let Some(p) = prompt {
+            params.set_initial_prompt(p);
+        }
 
         let mut state = self
             .context
@@ -253,11 +298,17 @@ impl Transcriber {
     }
 
     /// Transcribe 16 kHz mono f32 `samples`. Returns cleaned text (empty if it
-    /// looks like a hallucination).
+    /// looks like a hallucination). `custom_words` (the Dictionary) bias
+    /// Whisper's spelling; the ONNX engines have no prompt input.
     ///
     /// Runs inference on an off-mutex background thread with safety timeout so
     /// the app never freezes even on long audio or unsupported languages.
-    pub fn transcribe(&self, samples: &[f32], language: Option<&str>) -> Result<String, String> {
+    pub fn transcribe(
+        &self,
+        samples: &[f32],
+        language: Option<&str>,
+        custom_words: &[String],
+    ) -> Result<String, String> {
         if samples.len() < 1600 {
             // Less than 100ms of audio — nothing to transcribe.
             return Ok(String::new());
@@ -275,6 +326,8 @@ impl Transcriber {
 
         let samples_owned: Vec<f32> = samples.to_vec();
         let language_owned: Option<String> = language.map(|s| s.to_string());
+        let prompt = vocabulary_prompt(custom_words);
+        let prompt_thread = prompt.clone();
 
         // Channel carries (engine, inference_result) back to this thread.
         let (tx, rx) = std::sync::mpsc::channel::<(Engine, Result<String, String>)>();
@@ -283,7 +336,7 @@ impl Transcriber {
             let mut eng = engine;
             let lang_ref: Option<&str> = language_owned.as_deref();
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match &mut eng {
-                Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref),
+                Engine::Whisper(w) => w.transcribe(&samples_owned, lang_ref, prompt_thread.as_deref()),
                 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
                 Engine::Onnx(model) => {
                     let mut options = TranscribeOptions::default();
@@ -316,8 +369,11 @@ impl Transcriber {
                 *guard = Some(Loaded { model: engine, model_id: model_id.clone(), last_used: Instant::now() });
                 text
             }
-            Ok((_, Err(e))) => {
+            Ok((engine, Err(e))) => {
                 log::error!("Inference error for '{model_id}': {e}");
+                // Keep the model loaded: one bad clip must not force a reload.
+                let mut guard = self.loaded.lock().unwrap();
+                *guard = Some(Loaded { model: engine, model_id: model_id.clone(), last_used: Instant::now() });
                 return Err(e);
             }
             Err(_timeout) => {
@@ -337,7 +393,17 @@ impl Transcriber {
             started.elapsed().as_millis(),
             text.len()
         );
-        if is_hallucination(&text) { Ok(String::new()) } else { Ok(text) }
+        // Whisper invents stock phrases on silence, and can echo its prompt.
+        let whisper_junk = model_id.starts_with("whisper")
+            && ((is_hallucination(&text) && !has_speech(samples))
+                || prompt.as_deref().is_some_and(|p| text.trim_end_matches('.') == p.trim_end_matches('.')));
+        let empty = text.trim_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace()).is_empty();
+        if whisper_junk || empty {
+            log::info!("discarded transcript as non-speech: {text:?}");
+            Ok(String::new())
+        } else {
+            Ok(text)
+        }
     }
 
     /// Unload the model after `idle_minutes` of inactivity (0 disables).
@@ -361,5 +427,184 @@ impl Transcriber {
 impl Default for Transcriber {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn noise(n: usize, amp: f32) -> Vec<f32> {
+        // Deterministic pseudo-noise.
+        let mut x = 0x1234_5678u32;
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                (x as f32 / u32::MAX as f32 - 0.5) * 2.0 * amp
+            })
+            .collect()
+    }
+
+    #[test]
+    fn silence_is_not_speech() {
+        assert!(!has_speech(&noise(32_000, 0.002)));
+    }
+
+    #[test]
+    fn spoken_burst_is_speech() {
+        // 2 s of room noise with 0.6 s of speech-level signal in the middle.
+        let mut x = noise(32_000, 0.002);
+        for (i, s) in x.iter_mut().enumerate().skip(12_000).take(9_600) {
+            *s += (i as f32 * 0.05).sin() * 0.1;
+        }
+        assert!(has_speech(&x));
+    }
+
+    #[test]
+    fn vocabulary_prompt_from_dictionary() {
+        let words = vec!["Zeea".to_string(), " Athmo ".to_string(), String::new()];
+        assert_eq!(vocabulary_prompt(&words).as_deref(), Some("Zeea, Athmo."));
+        assert_eq!(vocabulary_prompt(&[]), None);
+    }
+    // ── Accuracy / latency benchmark ────────────────────────────────────
+    // Not run by default. Point BENCH_DIR at a folder with `sentences.txt`
+    // (one reference per line) and `NN_<anything>.wav` clips (PCM16, any
+    // rate; NN = 1-based line number). Uses the installed app models:
+    //   BENCH_DIR=... cargo test --release --lib bench_models -- --ignored --nocapture
+
+    fn read_wav(path: &std::path::Path) -> (u32, Vec<f32>) {
+        let b = std::fs::read(path).unwrap();
+        let (mut rate, mut channels, mut pos) = (16_000u32, 1usize, 12usize);
+        while pos + 8 <= b.len() {
+            let id = &b[pos..pos + 4];
+            let len = u32::from_le_bytes(b[pos + 4..pos + 8].try_into().unwrap()) as usize;
+            let body = &b[pos + 8..(pos + 8 + len).min(b.len())];
+            if id == b"fmt " {
+                channels = u16::from_le_bytes([body[2], body[3]]) as usize;
+                rate = u32::from_le_bytes(body[4..8].try_into().unwrap());
+            } else if id == b"data" {
+                let pcm: Vec<f32> = body
+                    .chunks_exact(2 * channels)
+                    .map(|f| i16::from_le_bytes([f[0], f[1]]) as f32 / 32768.0)
+                    .collect();
+                return (rate, pcm);
+            }
+            pos += 8 + len + (len & 1);
+        }
+        panic!("no data chunk in {}", path.display());
+    }
+
+    fn norm_words(s: &str) -> Vec<String> {
+        s.to_lowercase()
+            .replace(['-', '\u{2019}'], " ")
+            .split_whitespace()
+            .map(|w| w.chars().filter(|c| c.is_alphanumeric() || *c == '\'').collect::<String>())
+            .filter(|w| !w.is_empty())
+            .collect()
+    }
+
+    /// Word-level edit distance → (errors, reference words).
+    fn wer(reference: &str, hypothesis: &str) -> (usize, usize) {
+        let (r, h) = (norm_words(reference), norm_words(hypothesis));
+        let mut prev: Vec<usize> = (0..=h.len()).collect();
+        for i in 1..=r.len() {
+            let mut cur = vec![i; h.len() + 1];
+            for j in 1..=h.len() {
+                let sub = prev[j - 1] + usize::from(r[i - 1] != h[j - 1]);
+                cur[j] = sub.min(prev[j] + 1).min(cur[j - 1] + 1);
+            }
+            prev = cur;
+        }
+        (prev[h.len()], r.len())
+    }
+
+    #[test]
+    fn wer_counts_word_edits() {
+        assert_eq!(wer("What does it look like?", "what does it look like"), (0, 5));
+        assert_eq!(wer("What does it look like?", "What does it look."), (1, 5));
+        assert_eq!(wer("as well", "as a well"), (1, 2));
+    }
+
+    #[test]
+    #[ignore]
+    fn bench_models() {
+        let dir = std::path::PathBuf::from(std::env::var("BENCH_DIR").expect("set BENCH_DIR"));
+        let app_data = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
+            .join("com.mumblr.desktop");
+        let refs: Vec<String> = std::fs::read_to_string(dir.join("sentences.txt"))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect();
+        let mut wavs: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|x| x == "wav"))
+            .collect();
+        wavs.sort();
+        let clips: Vec<(String, Vec<f32>)> = wavs
+            .iter()
+            .map(|p| {
+                let n: usize = p.file_name().unwrap().to_str().unwrap()[..2].parse().unwrap();
+                let (rate, pcm) = read_wav(p);
+                (refs[n - 1].clone(), crate::audio::resample(&pcm, rate, 16_000))
+            })
+            .collect();
+        let audio_secs: f32 = clips.iter().map(|c| c.1.len() as f32 / 16_000.0).sum();
+        let dictionary: Vec<String> =
+            ["Zeea", "Tudor", "Athmo", "Tauri"].iter().map(|s| s.to_string()).collect();
+        println!("\n{} clips, {:.0} s of audio\n", clips.len(), audio_secs);
+
+        for id in [
+            "sense-voice-int8",
+            "parakeet-tdt-0.6b-v2",
+            "parakeet-tdt-0.6b-v3",
+            "whisper-small",
+            "whisper-turbo",
+        ] {
+            let model_dir = crate::models::model_dir(&app_data, id);
+            if !model_dir.exists() {
+                continue;
+            }
+            let t = Transcriber::new();
+            if let Err(e) = t.ensure_loaded(id, &model_dir) {
+                println!("{id}: load failed: {e}");
+                continue;
+            }
+            let prompts: &[bool] = if id.starts_with("whisper") { &[false, true] } else { &[false] };
+            for &use_prompt in prompts {
+                let words: &[String] = if use_prompt { &dictionary } else { &[] };
+                let warm = Instant::now();
+                if let Err(e) = t.transcribe(&clips[0].1, Some("en"), words) {
+                    println!("{id}: warm-up failed after {} ms: {e}", warm.elapsed().as_millis());
+                    let _ = t.ensure_loaded(id, &model_dir);
+                }
+                let (mut errs, mut total, mut ms) = (0, 0, 0u128);
+                let mut misses = Vec::new();
+                for (reference, samples) in &clips {
+                    let started = Instant::now();
+                    let hyp = t.transcribe(samples, Some("en"), words).unwrap_or_else(|e| format!("<{e}>"));
+                    ms += started.elapsed().as_millis();
+                    let (e, n) = wer(reference, &hyp);
+                    errs += e;
+                    total += n;
+                    if e > 0 {
+                        misses.push(format!("    [{e}] {hyp}"));
+                    }
+                }
+                println!(
+                    "{id:22} {:9} WER {:5.1}%  ({errs:3}/{total} words)  {:5} ms/clip  {:4.0} ms per audio-second",
+                    if use_prompt { "+dict" } else { "" },
+                    100.0 * errs as f32 / total as f32,
+                    ms / clips.len() as u128,
+                    ms as f32 / audio_secs,
+                );
+                for m in &misses {
+                    println!("{m}");
+                }
+            }
+        }
     }
 }
