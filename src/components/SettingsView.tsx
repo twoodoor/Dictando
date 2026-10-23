@@ -5,7 +5,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { LogOut, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
-import { isNative, backend, events, checkForAppUpdates, AppUpdateInfo } from '../lib/bridge';
+import { isNative, backend } from '../lib/bridge';
 
 const LANGUAGES = [
   'Auto-detect', 'English', 'Spanish', 'French', 'German', 'Italian',
@@ -80,58 +80,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [mics, setMics] = useState<{ id: string; label: string }[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [pressed, setPressed] = useState<string[]>([]);
-  const [checkingUpdate, setCheckingUpdate] = useState(false);
-  const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
-  const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.3.19');
   const [hotkeyConflict, setHotkeyConflict] = useState(false);
-
-  const handleCheckUpdate = async (force = false) => {
-    setCheckingUpdate(true);
-    try {
-      const update = await checkForAppUpdates(force);
-      setUpdateInfo(update);
-      if (!force) backend.refreshUpdateStatus().catch(() => {});
-      if (!update) {
-        toast.success(`Mumblr is up to date${appVersion ? ` (v${appVersion})` : ''}`);
-      } else {
-        toast.info(force ? `Ready to reinstall v${update.version}` : `Version ${update.version} is available!`);
-      }
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      if (msg.includes('404') || msg.includes('Not Found')) {
-        toast.error('No releases published yet — push a v* tag to trigger a release build');
-      } else {
-        toast.error(`Could not check for updates: ${msg}`);
-      }
-    } finally {
-      setCheckingUpdate(false);
-    }
-  };
-
-  // When the background watcher has found a release (taskbar dot), show the
-  // Install button straight away instead of making the user check again.
-  useEffect(() => {
-    if (!isNative) return;
-    const load = (v: string | null) => {
-      if (!v) { setUpdateInfo(null); return; }
-      checkForAppUpdates(false).then(setUpdateInfo).catch(() => {});
-    };
-    backend.getPendingUpdate().then(load).catch(() => {});
-    return events.onUpdateAvailable(load);
-  }, []);
-
-  const handleInstallUpdate = async () => {
-    if (!updateInfo) return;
-    setInstallingUpdate(true);
-    try {
-      toast.info('Downloading and installing update…');
-      await updateInfo.downloadAndInstall();
-    } catch (e) {
-      toast.error('Failed to install update');
-      setInstallingUpdate(false);
-    }
-  };
 
   // Load settings.
   useEffect(() => {
@@ -170,14 +119,6 @@ export function SettingsView({ user }: { user: User | null }) {
       if (d.apiKey) setApiKey(d.apiKey);
     }).catch(() => {});
   }, [user]);
-
-  // Load app version from Tauri.
-  useEffect(() => {
-    if (!isNative) return;
-    import('@tauri-apps/api/app').then(({ getVersion }) =>
-      getVersion().then(setAppVersion)
-    ).catch(() => {});
-  }, []);
 
   // Hotkey conflict detection — query on mount and listen for live events.
   useEffect(() => {
@@ -345,40 +286,9 @@ export function SettingsView({ user }: { user: User | null }) {
         )}
 
         {isNative && (
-          <Section title="App & updates">
+          <Section title="App">
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
-            </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.19'}`}>
-              <div className="flex gap-2">
-                {updateInfo ? (
-                  <button
-                    disabled={installingUpdate}
-                    onClick={handleInstallUpdate}
-                    className="px-3 py-1.5 bg-accent text-accent-fg text-xs font-medium rounded-lg hover:bg-accent-strong transition-colors disabled:opacity-50"
-                  >
-                    {installingUpdate ? 'Installing…' : `Install v${updateInfo.version}`}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      disabled={checkingUpdate}
-                      onClick={() => handleCheckUpdate(false)}
-                      className="px-3 py-1.5 bg-surface-2 text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
-                    >
-                      {checkingUpdate ? 'Checking…' : 'Check for updates'}
-                    </button>
-                    <button
-                      disabled={checkingUpdate || installingUpdate}
-                      onClick={() => handleCheckUpdate(true)}
-                      title="Reinstall the latest build from server even if version numbers match"
-                      className="px-2.5 py-1.5 bg-surface-2 text-muted hover:text-fg border border-line text-xs font-medium rounded-lg hover:bg-surface transition-colors disabled:opacity-50"
-                    >
-                      Force update
-                    </button>
-                  </>
-                )}
-              </div>
             </Row>
           </Section>
         )}

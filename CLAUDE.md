@@ -86,12 +86,11 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 Ship every completed change automatically, **without asking for approval**: once it builds and the tests pass, bump the patch version, commit, push, and tag.
 
 1. `git fetch origin --tags`. Make sure `tauri-rebuild` is not behind and the next version isn't taken (other sessions release from this same checkout).
-2. Bump `X.Y.Z` → `X.Y.(Z+1)` in all six places:
+2. Bump `X.Y.Z` → `X.Y.(Z+1)` in all five places:
    - `package.json`
    - `src-tauri/tauri.conf.json`
    - `src-tauri/Cargo.toml`
    - `src-tauri/Cargo.lock` (the `mumblr` package entry)
-   - `src/components/SettingsView.tsx` (2×)
    - `src/components/Sidebar.tsx`
 
    `package-lock.json` is stale at 0.1.1, so leave it.
