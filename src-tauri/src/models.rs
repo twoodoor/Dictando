@@ -118,7 +118,7 @@ pub const CATALOG: &[CatalogEntry] = &[
             best_for: "Everyday dictation in English or any of 24 European languages. The recommended default.",
             notes: &[
                 "Detects the spoken language automatically.",
-                "Romanian: 12.4% WER on FLEURS — the best fast option for Romanian.",
+                "Romanian: 12.4% WER on FLEURS. SpeD ParakeetRo is more accurate and faster for Romanian.",
                 "Adds punctuation and capitals itself.",
                 "Can't use Dictionary words as hints — unusual names may come out misspelled.",
             ],
@@ -237,6 +237,39 @@ pub const CATALOG: &[CatalogEntry] = &[
                 "Russian only — not trained for other languages, including other Slavic ones.",
                 "Output may lack punctuation; AI cleanup can add it.",
                 "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: false,
+        },
+    },
+    CatalogEntry {
+        // "parakeet" prefix → transcription.rs loads it with ParakeetModel.
+        id: "parakeet-tdt-ctc-110m-ro",
+        name: "SpeD ParakeetRo",
+        description: "🇷🇴 Built for Romanian — fast Parakeet fine-tuned on Romanian speech.",
+        languages: "Romanian",
+        size_bytes: 104_824_720,
+        accuracy: 0.9,
+        speed: 0.97,
+        format: "onnx",
+        supports_translation: false,
+        download_url: "https://github.com/twoodoor/Dictando/releases/download/models-sped-ro-110m/sped-parakeet-ro-110m-int8.tar.gz",
+        sha256: "f30df4f737b5177806220aa81f95c5d2f9dcee20265bc3629b06779616f75c94",
+        supported_lang_codes: &["ro"],
+        details: Details {
+            params: "110M",
+            architecture: "SpeD ParakeetRo (FastConformer TDT, from nvidia/parakeet-tdt_ctc-110m) · ONNX int8",
+            latency_ms: 150,
+            latency_measured: true,
+            wer_pct: -1.0,
+            ram_mb: 300,
+            best_for: "Romanian dictation that is both fast and accurate.",
+            notes: &[
+                "Romanian only — set Language to Romanian in Settings so it is used.",
+                "Romanian: 9.8% WER on our FLEURS test (Parakeet V3: 22.2%, Whisper Small Română: 18.4%), ~0.35 s per 10 s clip.",
+                "Authors report 10.6% WER on FLEURS Romanian (Parakeet V3: 12.4%) and 3.6% on Common Voice.",
+                "Writes lowercase without punctuation, and spells numbers out; AI cleanup can fix both.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+                "Research model from SpeD / UPB (Apache-2.0, arXiv 2511.03361), converted to ONNX by Mumblr.",
             ],
             punctuation: false,
         },
@@ -913,7 +946,10 @@ mod tests {
 
     /// A fake app-data dir where each id in `installed` has a non-empty model dir.
     fn fake_install(name: &str, installed: &[&str]) -> PathBuf {
-        let root = std::env::temp_dir().join(format!("mumblr-routing-{name}-{}", std::process::id()));
+        // Unique per call: tests run in parallel and often share `name`.
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let root = std::env::temp_dir().join(format!("mumblr-routing-{name}-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         for id in installed {
             let dir = model_dir(&root, id);
@@ -964,6 +1000,18 @@ mod tests {
         assert_eq!(route(&[V3, SMALL_RO, TURBO], TURBO, Some("ro")), Some(SMALL_RO));
         // An English-only selection falls back to the specialist for Romanian.
         assert_eq!(route(&[V2, V3, SMALL_RO], V2, Some("ro")), Some(SMALL_RO));
+    }
+
+    #[test]
+    fn fast_romanian_parakeet_is_the_preferred_romanian_specialist() {
+        const RO: &str = "parakeet-tdt-ctc-110m-ro";
+        // Installed next to the slow Romanian Whisper, the fast one wins.
+        assert_eq!(route(&[V3, RO, SMALL_RO], V3, Some("ro")), Some(V3)); // live selection kept
+        assert_eq!(route(&[V3, RO, SMALL_RO], TURBO, Some("ro")), Some(RO));
+        assert_eq!(route(&[V2, RO, SMALL_RO], V2, Some("ro")), Some(RO));
+        // Never used for other languages or auto-detect.
+        assert_eq!(route(&[V3, RO], RO, Some("en")), Some(V3));
+        assert_eq!(route(&[V3, RO], RO, None), Some(V3));
     }
 
     #[test]

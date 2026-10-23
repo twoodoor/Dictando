@@ -71,7 +71,7 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 > 2. **LLVM/libclang** (bindgen dependency) — `winget install LLVM.LLVM` (Windows) / `brew install llvm` (macOS) / `libclang-dev` (Linux). On Windows, point bindgen at it: `LIBCLANG_PATH=C:\Program Files\LLVM\bin`.
 > 3. **`.cargo/config.toml`** (repo root) sets `CMAKE_{C,CXX}_FLAGS_{RELEASE,RELWITHDEBINFO}=-O2 -DNDEBUG`. Without it, the `cmake` crate drops `/O2` under MSVC and whisper.cpp builds unoptimised (Whisper models time out). After touching it, run `cargo clean -p whisper-rs-sys` (and with `--release`).
 >
-> **Accuracy benchmark:** `transcription::tests::bench_models` (ignored by default) runs every installed model over WAV clips and reports WER and latency: `BENCH_DIR=<dir with sentences.txt + NN_*.wav> cargo test --release --lib bench_models -- --ignored --nocapture`.
+> **Accuracy benchmark:** `transcription::tests::bench_models` (ignored by default) runs every installed model over WAV clips and reports WER and latency: `BENCH_DIR=<dir with sentences.txt + NN_*.wav> cargo test --release --lib bench_models -- --ignored --nocapture`. Optional: `BENCH_LANG=ro`, `BENCH_APP_DATA=<dir with models/>`, `BENCH_MODELS=id1,id2`.
 
 > **Platform note:** dev environment is Windows + PowerShell. The `clean` script uses `rm -rf` (Unix-only) — prefer `rimraf` for cross-platform.
 
@@ -116,6 +116,8 @@ Ship every completed change automatically, **without asking for approval**: once
   - Model cards show languages, latency (benchmark + measured on this PC from History `latency_ms`), WER, RAM, limitations — `models::Details`, `model_stats` command
   - Romanian: `whisper-small-ro` (community Romanian Whisper Small fine-tune, GGML q8_0); Models filter is per-language
   - `updates.rs`: background update check (8 s, then every 4 h) → red dot on taskbar button (Windows overlay icon / macOS Dock badge), tray icon + tray item, sidebar Settings dot; `update-available` event
+
+- **v0.3.21 (2026-10-23):** Romanian `parakeet-tdt-ctc-110m-ro` (SpeD ParakeetRo 110M, TDT branch exported to ONNX int8 by `docs/models/export_sped_parakeet_ro.py`; 80-mel preprocessor shipped as `nemo128.onnx`). FLEURS-ro: 9.8% WER at ~35 ms per audio-second vs Parakeet V3 22.2%. Hosted as a GitHub prerelease asset (`models-sped-ro-110m`, not marked latest so the updater ignores it).
 
 ## Known issues / tech debt
 

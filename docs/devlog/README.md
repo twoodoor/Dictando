@@ -4,6 +4,7 @@ Running record of significant changes, decisions, and their rationale during the
 
 **How to use:** for every meaningful change, add a dated entry file named `YYYY-MM-DD-<topic>.md` and link it in the index below. Each entry follows the template at the bottom. Keep `CLAUDE.md` (+ `GEMINI.md`/`AGENTS.md`) in sync when architecture changes.
 
+- [2026-10-23 — SpeD ParakeetRo 110M: fast, accurate Romanian model (v0.3.21)](./2026-10-23-sped-parakeet-ro.md)
 - [2026-10-23 — Routing latency fix: slow selections yield to live models](./2026-10-23-routing-latency-fix.md)
 - [2026-10-23 — Model detail cards, Romanian model, taskbar update dot (v0.3.18)](./2026-10-23-model-details-romanian-update-dot.md)
 - [2026-10-22 — Dictation accuracy overhaul: routing, capture, resampling, Whisper build](./2026-10-22-dictation-accuracy-overhaul.md)

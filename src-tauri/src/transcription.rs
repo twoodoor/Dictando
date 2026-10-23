@@ -546,8 +546,12 @@ mod tests {
     #[ignore]
     fn bench_models() {
         let dir = std::path::PathBuf::from(std::env::var("BENCH_DIR").expect("set BENCH_DIR"));
-        let app_data = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
-            .join("com.mumblr.desktop");
+        // Optional overrides: BENCH_LANG (ISO code, default "en"), BENCH_APP_DATA
+        // (dir holding `models/<id>/`), BENCH_MODELS (comma-separated ids).
+        let lang = std::env::var("BENCH_LANG").unwrap_or_else(|_| "en".into());
+        let app_data = std::env::var("BENCH_APP_DATA").map(std::path::PathBuf::from).unwrap_or_else(|_| {
+            std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA")).join("com.mumblr.desktop")
+        });
         let refs: Vec<String> = std::fs::read_to_string(dir.join("sentences.txt"))
             .unwrap()
             .lines()
@@ -572,13 +576,20 @@ mod tests {
             ["Zeea", "Tudor", "Athmo", "Tauri"].iter().map(|s| s.to_string()).collect();
         println!("\n{} clips, {:.0} s of audio\n", clips.len(), audio_secs);
 
-        for id in [
+        let default_ids = [
             "sense-voice-int8",
             "parakeet-tdt-0.6b-v2",
             "parakeet-tdt-0.6b-v3",
+            "parakeet-tdt-ctc-110m-ro",
             "whisper-small",
+            "whisper-small-ro",
             "whisper-turbo",
-        ] {
+        ];
+        let ids: Vec<String> = match std::env::var("BENCH_MODELS") {
+            Ok(list) => list.split(',').map(|s| s.trim().to_string()).collect(),
+            Err(_) => default_ids.iter().map(|s| s.to_string()).collect(),
+        };
+        for id in ids.iter().map(String::as_str) {
             let model_dir = crate::models::model_dir(&app_data, id);
             if !model_dir.exists() {
                 continue;
@@ -592,7 +603,7 @@ mod tests {
             for &use_prompt in prompts {
                 let words: &[String] = if use_prompt { &dictionary } else { &[] };
                 let warm = Instant::now();
-                if let Err(e) = t.transcribe(&clips[0].1, Some("en"), words) {
+                if let Err(e) = t.transcribe(&clips[0].1, Some(&lang), words) {
                     println!("{id}: warm-up failed after {} ms: {e}", warm.elapsed().as_millis());
                     let _ = t.ensure_loaded(id, &model_dir);
                 }
@@ -600,7 +611,7 @@ mod tests {
                 let mut misses = Vec::new();
                 for (reference, samples) in &clips {
                     let started = Instant::now();
-                    let hyp = t.transcribe(samples, Some("en"), words).unwrap_or_else(|e| format!("<{e}>"));
+                    let hyp = t.transcribe(samples, Some(&lang), words).unwrap_or_else(|e| format!("<{e}>"));
                     ms += started.elapsed().as_millis();
                     let (e, n) = wer(reference, &hyp);
                     errs += e;
