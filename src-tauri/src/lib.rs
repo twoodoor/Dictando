@@ -10,6 +10,7 @@ mod audio;
 mod history;
 mod inject;
 mod models;
+mod punct_ro;
 mod settings;
 mod shortcuts;
 mod sound;
@@ -519,6 +520,16 @@ fn finish_recording(app: AppHandle) {
         let latency_ms = infer_started.elapsed().as_millis() as u64;
         match result {
             Ok(raw) if !raw.is_empty() => {
+                // Romanian models that output bare lowercase text get rule-based
+                // punctuation, so dictation reads properly even with AI cleanup
+                // off. Respects "Fix punctuation" when cleanup is on.
+                let raw = if punct_ro::applies(models::catalog_entry(&effective_model_id), lang_code)
+                    && (!cfg.ai_enhance_enabled || cfg.ai_fix_punctuation)
+                {
+                    punct_ro::punctuate(&raw)
+                } else {
+                    raw
+                };
 
                 // ── Phase 1: Local cleanup → paste instantly ───────────────
                 // Build local-only options (provider="" means no cloud call).

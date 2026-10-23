@@ -119,6 +119,8 @@ Ship every completed change automatically, **without asking for approval**: once
 
 - **v0.3.21 (2026-10-23):** Romanian `parakeet-tdt-ctc-110m-ro` (SpeD ParakeetRo 110M, TDT branch exported to ONNX int8 by `docs/models/export_sped_parakeet_ro.py`; 80-mel preprocessor shipped as `nemo128.onnx`). FLEURS-ro: 9.8% WER at ~35 ms per audio-second vs Parakeet V3 22.2%. Hosted as a GitHub prerelease asset (`models-sped-ro-110m`, not marked latest so the updater ignores it).
 
+- **v0.3.22 (2026-10-23):** `punct_ro.rs` — offline rule-based Romanian punctuation (capitals, final ./?, question openers/tags, commas before dar/însă/ci/iar/deci). Runs on the raw transcript when the model that ran has `details.punctuation == false` and the dictation is Romanian, with AI cleanup off (or on with Fix punctuation).
+
 ## Known issues / tech debt
 
 - **Hardcoded Google OAuth client secret** in `windows_app/dictando.py:32-33` — must not be carried into the Tauri app; rotate and remove.

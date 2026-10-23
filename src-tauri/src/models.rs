@@ -267,7 +267,7 @@ pub const CATALOG: &[CatalogEntry] = &[
                 "Romanian only — set Language to Romanian in Settings so it is used.",
                 "Romanian: 9.8% WER on our FLEURS test (Parakeet V3: 22.2%, Whisper Small Română: 18.4%), ~0.35 s per 10 s clip.",
                 "Authors report 10.6% WER on FLEURS Romanian (Parakeet V3: 12.4%) and 3.6% on Common Voice.",
-                "Writes lowercase without punctuation, and spells numbers out; AI cleanup can fix both.",
+                "Outputs bare lowercase text; Mumblr adds capitals, final periods, question marks and common commas offline. AI cleanup does a fuller job. Numbers come out spelled.",
                 "Can't use Dictionary words as hints — unusual names may come out misspelled.",
                 "Research model from SpeD / UPB (Apache-2.0, arXiv 2511.03361), converted to ONNX by Mumblr.",
             ],
