@@ -83,7 +83,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.3.18');
+  const [appVersion, setAppVersion] = useState('0.3.19');
   const [hotkeyConflict, setHotkeyConflict] = useState(false);
 
   const handleCheckUpdate = async (force = false) => {
@@ -292,7 +292,7 @@ export function SettingsView({ user }: { user: User | null }) {
             </select>
           </Row>
           {isNative && (
-            <Row title="⚡ Smart model routing" desc="Uses your selected model whenever it supports the language; otherwise switches to the most accurate installed model that does">
+            <Row title="⚡ Smart model routing" desc="Keeps dictation instant: if your selected model is too slow for live use on this PC (e.g. Whisper Turbo, ~13 s per dictation), an equally accurate fast model such as Parakeet V3 is used instead. Language-specific models (e.g. Romanian) are kept. Turn off to always use your selection.">
               <Toggle checked={smartRouting} onChange={(v) => { setSmartRouting(v); save('smartModelRouting', v); }} />
             </Row>
           )}
@@ -349,7 +349,7 @@ export function SettingsView({ user }: { user: User | null }) {
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
             </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.18'}`}>
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.19'}`}>
               <div className="flex gap-2">
                 {updateInfo ? (
                   <button

@@ -579,9 +579,26 @@ pub fn catalog_entry(model_id: &str) -> Option<&'static CatalogEntry> {
     CATALOG.iter().find(|e| e.id == model_id)
 }
 
-/// Pick the model to run for `lang_code`: the user's `active_model_id` when it
-/// is installed and supports the language, otherwise the most accurate
-/// installed model that does (`None` = auto-detect → multilingual models only).
+/// Slower than this for a ~4 s utterance (`details.latency_ms`) is not live
+/// dictation. Whisper Small takes ~2.6 s and Turbo ~13 s on a Ryzen 9 5950X.
+pub const LIVE_LATENCY_MS: u32 = 1000;
+
+/// A live model may replace a slow selection when it is at most this much
+/// less accurate (catalog `accuracy` scale).
+const LIVE_ACCURACY_SLACK: f32 = 0.02;
+
+/// Pick the model to run for `lang_code` (`None` = auto-detect → multilingual
+/// models only):
+///
+/// 1. The user's `active_model_id`, if it is installed, supports the language,
+///    and is fast enough for live dictation, or is a single-language model
+///    picked for its own language (e.g. the Romanian Whisper for Romanian).
+/// 2. Otherwise, an installed single-language model for this language.
+/// 3. Otherwise, if the selection is merely slow (Whisper Turbo, ~13 s per
+///    utterance on CPU), the most accurate live model, provided it is about as
+///    accurate. Honouring Turbo here made every dictation take 13–30 s.
+/// 4. If the selection can't handle the language, the most accurate installed
+///    model that can, preferring live ones.
 ///
 /// Returns `None` if no installed model can handle the language, so the caller
 /// should fall back to the user's manually selected model.
@@ -612,24 +629,42 @@ pub fn best_model_for_language(
             && supports(e, lang_code)
     };
 
-    // The model the user picked wins whenever it can handle the language.
-    // Routing used to prefer the *fastest* model, which silently swapped
-    // Whisper Turbo / Parakeet for SenseVoice on every English dictation.
-    if let Some(active) = CATALOG.iter().find(|e| e.id == active_model_id) {
-        if usable(&active) {
+    let is_live = |e: &CatalogEntry| e.details.latency_ms <= LIVE_LATENCY_MS;
+    let by_accuracy = |a: &&CatalogEntry, b: &&CatalogEntry| {
+        a.accuracy
+            .partial_cmp(&b.accuracy)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.speed.partial_cmp(&b.speed).unwrap_or(std::cmp::Ordering::Equal))
+    };
+    // Installed for exactly this language (Romanian Whisper, GigaAM Russian).
+    let specialist = lang_code.and_then(|code| {
+        CATALOG
+            .iter()
+            .filter(|e| usable(e))
+            .find(|e| matches!(e.supported_lang_codes, [only] if *only == code))
+    });
+
+    if let Some(active) = catalog_entry(active_model_id).filter(|e| usable(e)) {
+        if is_live(active) || specialist.is_some_and(|s| s.id == active.id) {
             return Some(active.id);
         }
+        if let Some(s) = specialist {
+            return Some(s.id);
+        }
+        let best_live = CATALOG.iter().filter(|e| usable(e) && is_live(e)).max_by(by_accuracy);
+        return Some(match best_live {
+            Some(live) if live.accuracy + LIVE_ACCURACY_SLACK >= active.accuracy => live.id,
+            _ => active.id,
+        });
     }
 
-    // Otherwise fall back to the most accurate installed model for the language.
-    CATALOG
-        .iter()
-        .filter(usable)
-        .max_by(|a, b| {
-            a.accuracy
-                .partial_cmp(&b.accuracy)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(a.speed.partial_cmp(&b.speed).unwrap_or(std::cmp::Ordering::Equal))
+    // The selection can't handle the language.
+    specialist
+        .or_else(|| {
+            CATALOG
+                .iter()
+                .filter(|e| usable(e))
+                .max_by(|a, b| is_live(a).cmp(&is_live(b)).then_with(|| by_accuracy(a, b)))
         })
         .map(|e| e.id)
 }
@@ -871,3 +906,69 @@ fn move_file(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A fake app-data dir where each id in `installed` has a non-empty model dir.
+    fn fake_install(name: &str, installed: &[&str]) -> PathBuf {
+        let root = std::env::temp_dir().join(format!("mumblr-routing-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for id in installed {
+            let dir = model_dir(&root, id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("model.bin"), b"x").unwrap();
+        }
+        root
+    }
+
+    fn route(installed: &[&str], active: &str, lang: Option<&str>) -> Option<&'static str> {
+        let root = fake_install(&format!("{active}-{}", lang.unwrap_or("auto")), installed);
+        let picked = best_model_for_language(&root, active, lang);
+        let _ = std::fs::remove_dir_all(&root);
+        picked
+    }
+
+    const V3: &str = "parakeet-tdt-0.6b-v3";
+    const V2: &str = "parakeet-tdt-0.6b-v2";
+    const SENSE: &str = "sense-voice-int8";
+    const TURBO: &str = "whisper-turbo";
+    const SMALL_RO: &str = "whisper-small-ro";
+
+    #[test]
+    fn slow_selection_yields_to_an_equally_accurate_live_model() {
+        // Whisper Turbo (~13 s per utterance on CPU) → Parakeet V3 (~0.3 s).
+        assert_eq!(route(&[V3, SENSE, TURBO], TURBO, Some("en")), Some(V3));
+        assert_eq!(route(&[V3, SENSE, TURBO], TURBO, None), Some(V3));
+    }
+
+    #[test]
+    fn slow_selection_kept_when_live_models_are_much_worse() {
+        // SenseVoice is fast but clearly less accurate than Turbo.
+        assert_eq!(route(&[SENSE, TURBO], TURBO, Some("en")), Some(TURBO));
+    }
+
+    #[test]
+    fn live_selection_is_always_kept() {
+        assert_eq!(route(&[V3, SENSE, TURBO], V3, Some("en")), Some(V3));
+        // Even when something more accurate is installed: the user chose it.
+        assert_eq!(route(&[V3, SENSE], SENSE, Some("en")), Some(SENSE));
+    }
+
+    #[test]
+    fn language_specialists_win_for_their_language() {
+        // The Romanian Whisper stays for Romanian although it is slow.
+        assert_eq!(route(&[V3, SMALL_RO, TURBO], SMALL_RO, Some("ro")), Some(SMALL_RO));
+        // A slow generalist selection gives way to the installed specialist.
+        assert_eq!(route(&[V3, SMALL_RO, TURBO], TURBO, Some("ro")), Some(SMALL_RO));
+        // An English-only selection falls back to the specialist for Romanian.
+        assert_eq!(route(&[V2, V3, SMALL_RO], V2, Some("ro")), Some(SMALL_RO));
+    }
+
+    #[test]
+    fn unsupported_selection_falls_back_to_a_live_model() {
+        assert_eq!(route(&[V2, V3, TURBO], V2, Some("de")), Some(V3));
+        assert_eq!(route(&[V2], V2, Some("de")), None);
+    }
+}

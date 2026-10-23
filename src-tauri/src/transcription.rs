@@ -266,11 +266,21 @@ struct Loaded {
 /// Tauri managed state and be used from the recording thread.
 pub struct Transcriber {
     loaded: Mutex<Option<Loaded>>,
+    /// Held for a whole load or inference, so dictations are transcribed one
+    /// at a time. While an inference runs its engine is out of `loaded`;
+    /// without this a second dictation saw "no model", loaded another copy
+    /// (Whisper Turbo: ~570 MB, seconds) and both ran at once, each at half
+    /// speed.
+    run: Mutex<()>,
 }
 
 impl Transcriber {
     pub fn new() -> Self {
-        Self { loaded: Mutex::new(None) }
+        Self { loaded: Mutex::new(None), run: Mutex::new(()) }
+    }
+
+    fn lock_run(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.run.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub fn is_loaded(&self) -> bool {
@@ -283,6 +293,8 @@ impl Transcriber {
 
     /// Ensure the model `model_id` (stored at `model_dir`) is loaded.
     pub fn ensure_loaded(&self, model_id: &str, model_dir: &Path) -> Result<(), String> {
+        // Wait for an in-flight inference to hand its engine back first.
+        let _run = self.lock_run();
         let mut guard = self.loaded.lock().unwrap();
         if guard.as_ref().map(|l| l.model_id.as_str()) == Some(model_id) {
             return Ok(());
@@ -315,6 +327,9 @@ impl Transcriber {
         }
 
         let started = Instant::now();
+
+        // One inference at a time (see `run`), held until this call returns.
+        let _run = self.lock_run();
 
         // Move the engine OUT of the mutex so the lock is NEVER held during inference.
         // We put it back when the inference thread finishes (or times out).

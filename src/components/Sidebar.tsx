@@ -30,7 +30,7 @@ export function Sidebar({
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
-  const [version, setVersion] = useState('0.3.18');
+  const [version, setVersion] = useState('0.3.19');
   // Pending app update found by the background watcher (also drives the taskbar dot).
   const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
 

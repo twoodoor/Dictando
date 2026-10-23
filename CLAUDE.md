@@ -81,6 +81,24 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 - UI: Tailwind utility classes, dark theme (zinc-950 bg, blue-500 accent, red-500 recording). Match existing components.
 - Keep raw transcription offline; never route audio/text through the network unless the AI layer is explicitly enabled.
 
+## Release workflow (standing instruction from the user, 2026-10-23)
+
+Ship every completed change automatically, **without asking for approval**: once it builds and the tests pass, bump the patch version, commit, push, and tag.
+
+1. `git fetch origin --tags`. Make sure `tauri-rebuild` is not behind and the next version isn't taken (other sessions release from this same checkout).
+2. Bump `X.Y.Z` → `X.Y.(Z+1)` in all six places:
+   - `package.json`
+   - `src-tauri/tauri.conf.json`
+   - `src-tauri/Cargo.toml`
+   - `src-tauri/Cargo.lock` (the `mumblr` package entry)
+   - `src/components/SettingsView.tsx` (2×)
+   - `src/components/Sidebar.tsx`
+
+   `package-lock.json` is stale at 0.1.1, so leave it.
+3. Commit only your own files on `tauri-rebuild` (other sessions may have uncommitted work in the tree). Put `(vX.Y.Z)` in the subject.
+4. `git push origin tauri-rebuild`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. Tags are lightweight. A `v*` tag triggers `.github/workflows/release.yml`, which builds the installers and the updater manifest.
+5. Never amend, force-push, or re-tag a version that has been pushed. If something is wrong, fix it in the next patch version.
+
 ## Build status (2026-08-25)
 
 - Phases 0–3a **done and runtime-verified**: `npm run tauri dev` runs the native app; Parakeet v3 downloads from the Models tab and dictation works end-to-end (~150–250 ms transcriptions) — shortcut → record → transcribe (Parakeet/ONNX) → paste, with local SQLite history.
@@ -104,7 +122,7 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
 
 - **Hardcoded Google OAuth client secret** in `windows_app/dictando.py:32-33` — must not be carried into the Tauri app; rotate and remove.
 - **Whisper is slow on CPU** even when optimised (5950X: Small ~2.6 s, Turbo ~13 s per utterance, because it always encodes a 30 s window). Parakeet v3 is as accurate on the benchmark at ~0.3 s. Options: `audio_ctx` scaled to clip length, GPU/Vulkan build.
-- **Smart model routing** keeps the selected model when it supports the language and otherwise falls back to the most accurate installed one. It used to pick the *fastest*, which silently ran SenseVoice for every English dictation.
+- **Smart model routing** (`models::best_model_for_language`) keeps the selected model when it is live (`details.latency_ms` ≤ `LIVE_LATENCY_MS` = 1 s) or is a single-language model used for its own language. Otherwise it prefers an installed specialist for the language, then a live model within 0.02 accuracy (Whisper Turbo → Parakeet V3). History of this logic: v0.3.16 always picked the *fastest* (SenseVoice for all English), and v0.3.17 always honoured the selection (Turbo → 13–30 s per dictation).
 - **Phase B pending:** two-phase paste (paste local-cleaned text instantly, async cloud cleanup replaces), hotkey conflict detection UI, overlay latency reduction.
 - **Phase C pending:** SenseVoice Small (70 ms, NAR, 50+ langs) and Moonshine Tiny/Base (55–107 ms, English) to add to model catalog.
 
