@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mic, Cpu, History, BookA, Settings, Sun, Moon, Monitor } from 'lucide-react';
 import type { Theme } from '../lib/theme';
-import { isNative } from '../lib/bridge';
+import { isNative, backend, events } from '../lib/bridge';
 
 export type Tab = 'record' | 'models' | 'history' | 'dictionary' | 'settings';
 
@@ -30,7 +30,15 @@ export function Sidebar({
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
-  const [version, setVersion] = useState('0.3.17');
+  const [version, setVersion] = useState('0.3.18');
+  // Pending app update found by the background watcher (also drives the taskbar dot).
+  const [pendingUpdate, setPendingUpdate] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isNative) return;
+    backend.getPendingUpdate().then(setPendingUpdate).catch(() => {});
+    return events.onUpdateAvailable(setPendingUpdate);
+  }, []);
 
   useEffect(() => {
     if (isNative) {
@@ -57,6 +65,13 @@ export function Sidebar({
             >
               <span className={on ? 'text-accent' : ''}>{icon}</span>
               {label}
+              {id === 'settings' && pendingUpdate && (
+                <span
+                  className="ml-auto w-2 h-2 rounded-full bg-danger"
+                  title={`Update v${pendingUpdate} available`}
+                  aria-label={`Update v${pendingUpdate} available`}
+                />
+              )}
             </button>
           );
         })}
@@ -79,9 +94,12 @@ export function Sidebar({
           ))}
         </div>
         {version && (
-          <div className="mt-2 text-center text-[10px] text-faint select-none tracking-wide">
-            v{version}
-          </div>
+          <button
+            onClick={() => pendingUpdate && onNavigate('settings')}
+            className={`mt-2 w-full text-center text-[10px] select-none tracking-wide ${pendingUpdate ? 'text-accent hover:underline' : 'text-faint cursor-default'}`}
+          >
+            v{version}{pendingUpdate ? ` · v${pendingUpdate} available` : ''}
+          </button>
         )}
       </div>
     </aside>

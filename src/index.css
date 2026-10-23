@@ -68,6 +68,9 @@
   .border-line   { border-color: var(--line); }
   .border-accent { border-color: var(--accent); }
   .ring-accent   { --tw-ring-color: var(--accent); }
+  .text-danger   { color: var(--danger); }
+  .text-ok       { color: var(--ok); }
+  .bg-danger     { background-color: var(--danger); }
 
   /* Editorial display face for hero / section headings. */
   .font-display {

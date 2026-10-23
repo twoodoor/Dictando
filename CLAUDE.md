@@ -95,6 +95,11 @@ Rust side: `cargo build` / `cargo clippy` inside `src-tauri/`.
   - **Grok 4.1 Fast** added as second cloud cleanup provider (Settings: `ai_provider` = "gemini"|"grok", `grok_api_key` field). ~$0.0001/call, ~300–500 ms.
   - **Hotkey key-repeat debounce**: `hotkey_held: AtomicBool` in `AppState` prevents Windows from flooding `begin_recording` calls during the ~30 Hz key-repeat that fires after 500 ms of holding.
 
+- **v0.3.18 (2026-10-23):**
+  - Model cards show languages, latency (benchmark + measured on this PC from History `latency_ms`), WER, RAM, limitations — `models::Details`, `model_stats` command
+  - Romanian: `whisper-small-ro` (community Romanian Whisper Small fine-tune, GGML q8_0); Models filter is per-language
+  - `updates.rs`: background update check (8 s, then every 4 h) → red dot on taskbar button (Windows overlay icon / macOS Dock badge), tray icon + tray item, sidebar Settings dot; `update-available` event
+
 ## Known issues / tech debt
 
 - **Hardcoded Google OAuth client secret** in `windows_app/dictando.py:32-33` — must not be carried into the Tauri app; rotate and remove.

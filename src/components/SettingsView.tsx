@@ -5,7 +5,7 @@ import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { LogOut, Keyboard } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion } from 'motion/react';
-import { isNative, backend, checkForAppUpdates, AppUpdateInfo } from '../lib/bridge';
+import { isNative, backend, events, checkForAppUpdates, AppUpdateInfo } from '../lib/bridge';
 
 const LANGUAGES = [
   'Auto-detect', 'English', 'Spanish', 'French', 'German', 'Italian',
@@ -83,7 +83,7 @@ export function SettingsView({ user }: { user: User | null }) {
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [installingUpdate, setInstallingUpdate] = useState(false);
-  const [appVersion, setAppVersion] = useState('0.3.17');
+  const [appVersion, setAppVersion] = useState('0.3.18');
   const [hotkeyConflict, setHotkeyConflict] = useState(false);
 
   const handleCheckUpdate = async (force = false) => {
@@ -91,6 +91,7 @@ export function SettingsView({ user }: { user: User | null }) {
     try {
       const update = await checkForAppUpdates(force);
       setUpdateInfo(update);
+      if (!force) backend.refreshUpdateStatus().catch(() => {});
       if (!update) {
         toast.success(`Mumblr is up to date${appVersion ? ` (v${appVersion})` : ''}`);
       } else {
@@ -107,6 +108,18 @@ export function SettingsView({ user }: { user: User | null }) {
       setCheckingUpdate(false);
     }
   };
+
+  // When the background watcher has found a release (taskbar dot), show the
+  // Install button straight away instead of making the user check again.
+  useEffect(() => {
+    if (!isNative) return;
+    const load = (v: string | null) => {
+      if (!v) { setUpdateInfo(null); return; }
+      checkForAppUpdates(false).then(setUpdateInfo).catch(() => {});
+    };
+    backend.getPendingUpdate().then(load).catch(() => {});
+    return events.onUpdateAvailable(load);
+  }, []);
 
   const handleInstallUpdate = async () => {
     if (!updateInfo) return;
@@ -336,7 +349,7 @@ export function SettingsView({ user }: { user: User | null }) {
             <Row title="Launch on startup" desc="Start Mumblr when you log in">
               <Toggle checked={launchOnStartup} onChange={(v) => { setLaunchOnStartup(v); save('launchOnStartup', v); }} />
             </Row>
-            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.17'}`}>
+            <Row title="App updates" desc={updateInfo ? `New version v${updateInfo.version} ready` : `Mumblr v${appVersion || '0.3.18'}`}>
               <div className="flex gap-2">
                 {updateInfo ? (
                   <button

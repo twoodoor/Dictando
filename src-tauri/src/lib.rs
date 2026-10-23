@@ -14,6 +14,7 @@ mod settings;
 mod shortcuts;
 mod sound;
 mod transcription;
+mod updates;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -201,6 +202,7 @@ fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    updates::apply_indicators(app);
 }
 
 // ---------------------------------------------------------------------------
@@ -260,8 +262,11 @@ fn build_tray_menu(handle: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, 
     // ── Top-level items ─────────────────────────────────────────────────
     let paste_last = MenuItemBuilder::with_id("paste-last", "Paste Last Transcript").build(handle)?;
     let open_dashboard = MenuItemBuilder::with_id("open-dashboard", "Open Dashboard").build(handle)?;
-    let check_updates =
-        MenuItemBuilder::with_id("check-updates", "Check for Updates").build(handle)?;
+    let update_label = match updates::pending_version(handle) {
+        Some(v) => format!("● Install Update v{v}"),
+        None => "Check for Updates".to_string(),
+    };
+    let check_updates = MenuItemBuilder::with_id("check-updates", update_label).build(handle)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Mumblr").build(handle)?;
 
     MenuBuilder::new(handle)
@@ -280,7 +285,7 @@ fn build_tray_menu(handle: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, 
 /// Rebuild and swap the tray menu so checkmarks reflect the latest settings.
 /// Safe to call from any thread (menu creation is on the main thread via the
 /// handle).
-fn rebuild_tray_menu(app: &AppHandle) {
+pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     match build_tray_menu(app) {
         Ok(menu) => {
             if let Some(tray) = app.tray_by_id("main-tray") {
@@ -383,6 +388,7 @@ fn handle_tray_menu_event(app: &AppHandle, event: &tauri::menu::MenuEvent) {
                         }
                         Ok(None) => {
                             log::info!("no update available");
+                            updates::set_pending(&app, None);
                             let _ = app.emit("update-status", "up-to-date");
                         }
                         Err(e) => log::error!("update check failed: {e}"),
@@ -508,7 +514,10 @@ fn finish_recording(app: AppHandle) {
         }
 
         let lang_code = transcription::language_to_code(&cfg.language);
-        match state.transcriber.transcribe(&samples, lang_code, &cfg.custom_words) {
+        let infer_started = std::time::Instant::now();
+        let result = state.transcriber.transcribe(&samples, lang_code, &cfg.custom_words);
+        let latency_ms = infer_started.elapsed().as_millis() as u64;
+        match result {
             Ok(raw) if !raw.is_empty() => {
 
                 // ── Phase 1: Local cleanup → paste instantly ───────────────
@@ -625,6 +634,7 @@ fn finish_recording(app: AppHandle) {
                     engine: effective_model_id.clone(),
                     timestamp: now_ms(),
                     favorite: false,
+                    latency_ms,
                 };
                 if let Err(e) = state.history.insert(&entry) {
                     log::error!("history insert failed: {e}");
@@ -708,6 +718,24 @@ fn stop_recording(app: AppHandle) {
 #[tauri::command]
 fn list_models(state: State<AppState>) -> Vec<models::ModelInfo> {
     models::list(&state.app_data_dir)
+}
+
+/// Version of a pending app update found by the background watcher.
+#[tauri::command]
+fn get_pending_update(app: AppHandle) -> Option<String> {
+    updates::pending_version(&app)
+}
+
+/// Run an update check now (refreshes the taskbar dot).
+#[tauri::command]
+async fn refresh_update_status(app: AppHandle) -> Option<String> {
+    updates::check_now(&app).await
+}
+
+/// Measured per-model latency on this machine (from History).
+#[tauri::command]
+fn model_stats(state: State<AppState>) -> Result<Vec<history::ModelStats>, String> {
+    state.history.model_stats()
 }
 
 #[tauri::command]
@@ -1007,6 +1035,10 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            // Background update check → taskbar/tray dot when a new version exists.
+            app.manage(updates::UpdateState::default());
+            updates::spawn_watcher(app.handle().clone());
+
             // Apply launch-on-startup preference.
             sync_autostart(app.handle(), snapshot.launch_on_startup);
 
@@ -1051,6 +1083,9 @@ pub fn run() {
             start_recording,
             stop_recording,
             list_models,
+            model_stats,
+            get_pending_update,
+            refresh_update_status,
             set_active_model,
             delete_model,
             download_model,

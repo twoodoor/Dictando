@@ -27,6 +27,23 @@ pub struct ModelInfo {
     pub format: String, // "onnx" | "ggml"
     pub supports_translation: bool,
     pub installed: bool,
+    /// Full display names of every language the model transcribes.
+    pub language_list: Vec<String>,
+    pub params: String,
+    pub architecture: String,
+    /// Typical time to transcribe a ~4 s utterance on a desktop CPU.
+    pub latency_ms: u32,
+    /// True when `latency_ms` comes from our benchmark, false = estimate.
+    pub latency_measured: bool,
+    /// Benchmark word error rate in percent (English clips), if measured.
+    pub wer_pct: Option<f32>,
+    pub ram_mb: u32,
+    pub best_for: String,
+    pub notes: Vec<String>,
+    pub punctuation: bool,
+    pub uses_dictionary: bool,
+    /// False when the engine refuses it for live dictation (too slow on CPU).
+    pub dictation_ready: bool,
 }
 
 /// Internal catalog entry including download metadata not exposed to the UI.
@@ -48,6 +65,23 @@ pub struct CatalogEntry {
     /// ISO-639-1 codes this model can transcribe. Empty = all languages
     /// (e.g. Whisper). Used by smart routing to find a model for the language.
     pub supported_lang_codes: &'static [&'static str],
+    pub details: Details,
+}
+
+/// Plain-language facts shown on the model card so users know what they are
+/// signing up for. Latencies are for a ~4 s utterance on a Ryzen 9 5950X
+/// (release build); `latency_measured` marks numbers from `bench_models`.
+pub struct Details {
+    pub params: &'static str,
+    pub architecture: &'static str,
+    pub latency_ms: u32,
+    pub latency_measured: bool,
+    /// < 0 = not measured.
+    pub wer_pct: f32,
+    pub ram_mb: u32,
+    pub best_for: &'static str,
+    pub notes: &'static [&'static str],
+    pub punctuation: bool,
 }
 
 /// The static model catalog.
@@ -74,6 +108,22 @@ pub const CATALOG: &[CatalogEntry] = &[
             "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
             "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
         ],
+        details: Details {
+            params: "600M",
+            architecture: "NVIDIA Parakeet TDT (FastConformer) · ONNX int8",
+            latency_ms: 330,
+            latency_measured: true,
+            wer_pct: 3.4,
+            ram_mb: 700,
+            best_for: "Everyday dictation in English or any of 24 European languages. The recommended default.",
+            notes: &[
+                "Detects the spoken language automatically.",
+                "Romanian: 12.4% WER on FLEURS — the best fast option for Romanian.",
+                "Adds punctuation and capitals itself.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "parakeet-tdt-0.6b-v2",
@@ -88,6 +138,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/parakeet-v2-int8.tar.gz",
         sha256: "ac9b9429984dd565b25097337a887bb7f0f8ac393573661c651f0e7d31563991",
         supported_lang_codes: &["en"],
+        details: Details {
+            params: "600M",
+            architecture: "NVIDIA Parakeet TDT (FastConformer) · ONNX int8",
+            latency_ms: 330,
+            latency_measured: true,
+            wer_pct: 3.4,
+            ram_mb: 700,
+            best_for: "English-only speakers who want top accuracy at near-instant speed.",
+            notes: &[
+                "English only — other languages come out as garbled English.",
+                "Adds punctuation and capitals itself.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "moonshine-base",
@@ -102,6 +167,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/moonshine-base.tar.gz",
         sha256: "04bf6ab012cfceebd4ac7cf88c1b31d027bbdd3cd704649b692e2e935236b7e8",
         supported_lang_codes: &["en"],
+        details: Details {
+            params: "61M",
+            architecture: "Useful Sensors Moonshine Base · ONNX",
+            latency_ms: 150,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 150,
+            best_for: "Low-power laptops that need fast English dictation with little memory.",
+            notes: &[
+                "English only.",
+                "Less accurate than Parakeet on long or technical sentences.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "sense-voice-int8",
@@ -116,6 +196,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/sense-voice-int8.tar.gz",
         sha256: "171d611fe5d353a50bbb741b6f3ef42559b1565685684e9aa888ef563ba3e8a4",
         supported_lang_codes: &["en", "zh", "ja", "ko", "yue"],
+        details: Details {
+            params: "234M",
+            architecture: "Alibaba SenseVoice Small (non-autoregressive) · ONNX int8",
+            latency_ms: 130,
+            latency_measured: true,
+            wer_pct: 5.4,
+            ram_mb: 300,
+            best_for: "Chinese, Japanese, Korean or Cantonese dictation, or the absolute fastest response.",
+            notes: &[
+                "Handles English, but drops or misspells more words than Parakeet (5.4% vs 3.4% WER).",
+                "No European languages besides English.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "giga-am-v3-int8",
@@ -130,6 +225,53 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/giga-am-v3-int8.tar.gz",
         sha256: "d872462268430db140b69b72e0fc4b787b194c1dbe51b58de39444d55b6da45b",
         supported_lang_codes: &["ru"],
+        details: Details {
+            params: "240M",
+            architecture: "Sber GigaAM v3 (Conformer) · ONNX int8",
+            latency_ms: 100,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 300,
+            best_for: "Russian speakers.",
+            notes: &[
+                "Russian only — not trained for other languages, including other Slavic ones.",
+                "Output may lack punctuation; AI cleanup can add it.",
+                "Can't use Dictionary words as hints — unusual names may come out misspelled.",
+            ],
+            punctuation: false,
+        },
+    },
+    CatalogEntry {
+        id: "whisper-small-ro",
+        name: "Whisper Small Română",
+        description: "🇷🇴 Built for Romanian — Whisper Small fine-tuned on ~555 h of Romanian speech.",
+        languages: "Romanian",
+        size_bytes: 264_464_607,
+        accuracy: 0.85,
+        speed: 0.7,
+        format: "ggml",
+        supports_translation: false,
+        download_url: "https://huggingface.co/YarosTN/whisper-small-ro-ggml/resolve/main/ggml-small-ro-q8_0.bin",
+        sha256: "aa84f01debb86916108f41f8dd3df18e2126708dc47c523d3958b9c5ba485f66",
+        // Fine-tuned for Romanian only; routing sends Romanian dictation here.
+        supported_lang_codes: &["ro"],
+        details: Details {
+            params: "244M",
+            architecture: "Whisper Small fine-tune (IonGrozea/whisper-small_ro) · whisper.cpp GGML (q8_0)",
+            latency_ms: 2600,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 600,
+            best_for: "Romanian dictation with correct diacritics (ă, â, î, ș, ț).",
+            notes: &[
+                "Romanian only — set Language to Romanian in Settings so it is used.",
+                "Author reports 9.3% WER on Romanian (stock Whisper Small: 29.8% on FLEURS).",
+                "Same speed as Whisper Small: ~2–3 s per dictation on CPU.",
+                "Uses your Dictionary words as spelling hints.",
+                "Community model (Apache-2.0), new and not yet widely tested.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-tiny",
@@ -144,6 +286,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
         sha256: "",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "39M",
+            architecture: "OpenAI Whisper Tiny · whisper.cpp GGML",
+            latency_ms: 400,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 125,
+            best_for: "Old or very low-power machines (e.g. Intel Macs) that can't run anything bigger.",
+            notes: &[
+                "Lowest accuracy in the catalog — expect frequent mistakes.",
+                "Uses your Dictionary words as spelling hints.",
+                "Can invent text on silence; Mumblr filters the common cases.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-base",
@@ -158,6 +315,20 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
         sha256: "",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "74M",
+            architecture: "OpenAI Whisper Base · whisper.cpp GGML",
+            latency_ms: 800,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 210,
+            best_for: "Low-power machines that need a language Parakeet doesn't cover.",
+            notes: &[
+                "Modest accuracy, especially outside English.",
+                "Uses your Dictionary words as spelling hints.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-small",
@@ -172,6 +343,21 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/ggml-small.bin",
         sha256: "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "244M",
+            architecture: "OpenAI Whisper Small · whisper.cpp GGML (f16)",
+            latency_ms: 2600,
+            latency_measured: true,
+            wer_pct: 3.4,
+            ram_mb: 850,
+            best_for: "Languages Parakeet doesn't cover, when a short wait is fine.",
+            notes: &[
+                "Takes ~2–3 s per dictation, even for short phrases.",
+                "Weak in Romanian (29.8% WER on FLEURS) — use Whisper Small Română instead.",
+                "Uses your Dictionary words as spelling hints. Benchmark WER drops to 2.0% with them.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-medium",
@@ -186,6 +372,20 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/whisper-medium-q4_1.bin",
         sha256: "79283fc1f9fe12ca3248543fbd54b73292164d8df5a16e095e2bceeaaabddf57",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "769M",
+            architecture: "OpenAI Whisper Medium · whisper.cpp GGML (q4_1)",
+            latency_ms: 8000,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 900,
+            best_for: "Not usable for live dictation on CPU.",
+            notes: &[
+                "Mumblr refuses to run it for dictation — too slow on CPU. Pick Small, Turbo or Parakeet instead.",
+                "Uses your Dictionary words as spelling hints.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-large",
@@ -200,6 +400,20 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://blob.handy.computer/ggml-large-v3-q5_0.bin",
         sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "1.55B",
+            architecture: "OpenAI Whisper Large v3 · whisper.cpp GGML (q5_0)",
+            latency_ms: 20000,
+            latency_measured: false,
+            wer_pct: -1.0,
+            ram_mb: 1500,
+            best_for: "Not usable for live dictation on CPU.",
+            notes: &[
+                "Mumblr refuses to run it for dictation — too slow on CPU. Pick Turbo instead.",
+                "Uses your Dictionary words as spelling hints.",
+            ],
+            punctuation: true,
+        },
     },
     CatalogEntry {
         id: "whisper-turbo",
@@ -214,6 +428,20 @@ pub const CATALOG: &[CatalogEntry] = &[
         download_url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         sha256: "",
         supported_lang_codes: &[], // all languages
+        details: Details {
+            params: "809M",
+            architecture: "OpenAI Whisper Large v3 Turbo · whisper.cpp GGML (q5_0)",
+            latency_ms: 13000,
+            latency_measured: true,
+            wer_pct: 3.4,
+            ram_mb: 1000,
+            best_for: "The most accurate choice for less common languages, if you can wait.",
+            notes: &[
+                "Slow on CPU: ~13 s per dictation. Same English accuracy as Parakeet (3.4% WER).",
+                "Uses your Dictionary words as spelling hints. Benchmark WER drops to 2.7% with them.",
+            ],
+            punctuation: true,
+        },
     },
 
 ];
@@ -279,8 +507,72 @@ pub fn list(app_data_dir: &Path) -> Vec<ModelInfo> {
             format: e.format.to_string(),
             supports_translation: e.supports_translation,
             installed: is_installed(app_data_dir, e.id),
+            language_list: language_codes(e).iter().map(|c| lang_name(c).to_string()).collect(),
+            params: e.details.params.to_string(),
+            architecture: e.details.architecture.to_string(),
+            latency_ms: e.details.latency_ms,
+            latency_measured: e.details.latency_measured,
+            wer_pct: (e.details.wer_pct >= 0.0).then_some(e.details.wer_pct),
+            ram_mb: e.details.ram_mb,
+            best_for: e.details.best_for.to_string(),
+            notes: e.details.notes.iter().map(|n| n.to_string()).collect(),
+            punctuation: e.details.punctuation,
+            uses_dictionary: e.format == "ggml",
+            dictation_ready: !matches!(e.id, "whisper-medium" | "whisper-large"),
         })
         .collect()
+}
+
+/// Every language OpenAI Whisper was trained on (ISO-639-1, Whisper's order).
+const WHISPER_LANGS: &[&str] = &[
+    "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr", "pl", "ca", "nl", "ar", "sv",
+    "it", "id", "hi", "fi", "vi", "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+    "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk", "te", "fa", "lv", "bn", "sr",
+    "az", "sl", "kn", "et", "mk", "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+    "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc", "ka", "be", "tg", "sd", "gu",
+    "am", "yi", "lo", "uz", "fo", "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+    "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
+];
+
+/// Languages a catalog entry can transcribe (Whisper's empty list = all 99).
+fn language_codes(e: &CatalogEntry) -> &'static [&'static str] {
+    if e.supported_lang_codes.is_empty() && e.format == "ggml" {
+        WHISPER_LANGS
+    } else {
+        e.supported_lang_codes
+    }
+}
+
+/// English display name for an ISO-639-1 code.
+pub fn lang_name(code: &str) -> &str {
+    match code {
+        "af" => "Afrikaans", "am" => "Amharic", "ar" => "Arabic", "as" => "Assamese",
+        "az" => "Azerbaijani", "ba" => "Bashkir", "be" => "Belarusian", "bg" => "Bulgarian",
+        "bn" => "Bengali", "bo" => "Tibetan", "br" => "Breton", "bs" => "Bosnian",
+        "ca" => "Catalan", "cs" => "Czech", "cy" => "Welsh", "da" => "Danish", "de" => "German",
+        "el" => "Greek", "en" => "English", "es" => "Spanish", "et" => "Estonian",
+        "eu" => "Basque", "fa" => "Persian", "fi" => "Finnish", "fo" => "Faroese",
+        "fr" => "French", "gl" => "Galician", "gu" => "Gujarati", "ha" => "Hausa",
+        "haw" => "Hawaiian", "he" => "Hebrew", "hi" => "Hindi", "hr" => "Croatian",
+        "ht" => "Haitian Creole", "hu" => "Hungarian", "hy" => "Armenian", "id" => "Indonesian",
+        "is" => "Icelandic", "it" => "Italian", "ja" => "Japanese", "jw" => "Javanese",
+        "ka" => "Georgian", "kk" => "Kazakh", "km" => "Khmer", "kn" => "Kannada",
+        "ko" => "Korean", "la" => "Latin", "lb" => "Luxembourgish", "ln" => "Lingala",
+        "lo" => "Lao", "lt" => "Lithuanian", "lv" => "Latvian", "mg" => "Malagasy",
+        "mi" => "Maori", "mk" => "Macedonian", "ml" => "Malayalam", "mn" => "Mongolian",
+        "mr" => "Marathi", "ms" => "Malay", "mt" => "Maltese", "my" => "Burmese",
+        "ne" => "Nepali", "nl" => "Dutch", "nn" => "Nynorsk", "no" => "Norwegian",
+        "oc" => "Occitan", "pa" => "Punjabi", "pl" => "Polish", "ps" => "Pashto",
+        "pt" => "Portuguese", "ro" => "Romanian", "ru" => "Russian", "sa" => "Sanskrit",
+        "sd" => "Sindhi", "si" => "Sinhala", "sk" => "Slovak", "sl" => "Slovenian",
+        "sn" => "Shona", "so" => "Somali", "sq" => "Albanian", "sr" => "Serbian",
+        "su" => "Sundanese", "sv" => "Swedish", "sw" => "Swahili", "ta" => "Tamil",
+        "te" => "Telugu", "tg" => "Tajik", "th" => "Thai", "tk" => "Turkmen", "tl" => "Tagalog",
+        "tr" => "Turkish", "tt" => "Tatar", "uk" => "Ukrainian", "ur" => "Urdu", "uz" => "Uzbek",
+        "vi" => "Vietnamese", "yi" => "Yiddish", "yo" => "Yoruba", "yue" => "Cantonese",
+        "zh" => "Chinese",
+        other => other,
+    }
 }
 
 pub fn catalog_entry(model_id: &str) -> Option<&'static CatalogEntry> {

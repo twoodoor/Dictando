@@ -90,6 +90,31 @@ export interface ModelInfo {
   format: ModelFormat;
   supportsTranslation: boolean;
   installed: boolean;
+  /** Display names of every language the model transcribes. */
+  languageList: string[];
+  params: string;
+  architecture: string;
+  /** Typical ms to transcribe a ~4 s utterance on a desktop CPU. */
+  latencyMs: number;
+  /** true = benchmarked, false = estimate. */
+  latencyMeasured: boolean;
+  /** Benchmark word error rate (%), English clips; null if not measured. */
+  werPct: number | null;
+  ramMb: number;
+  bestFor: string;
+  notes: string[];
+  punctuation: boolean;
+  usesDictionary: boolean;
+  /** false = engine refuses it for live dictation (too slow on CPU). */
+  dictationReady: boolean;
+}
+
+/** Real latency of a model on this machine, averaged from History. */
+export interface ModelStats {
+  modelId: string;
+  count: number;
+  avgLatencyMs: number;
+  msPerAudioSecond: number;
 }
 
 export interface DownloadProgress {
@@ -155,6 +180,7 @@ export const backend = {
 
   // Models (Phase 2)
   listModels: () => invoke<ModelInfo[]>('list_models'),
+  modelStats: () => invoke<ModelStats[]>('model_stats'),
   downloadModel: (modelId: string) => invoke<void>('download_model', { modelId }),
   deleteModel: (modelId: string) => invoke<void>('delete_model', { modelId }),
   setActiveModel: (modelId: string) => invoke<void>('set_active_model', { modelId }),
@@ -176,6 +202,10 @@ export const backend = {
 
   // Hotkey conflict detection
   getHotkeyStatus: () => invoke<boolean>('get_hotkey_status'),
+
+  // App updates — background watcher (drives the taskbar dot)
+  getPendingUpdate: () => invoke<string | null>('get_pending_update'),
+  refreshUpdateStatus: () => invoke<string | null>('refresh_update_status'),
 };
 
 // ---------------------------------------------------------------------------
@@ -195,6 +225,9 @@ export const events = {
     listen<number>('audio-level', h),
   onTranscriptionError: (h: (err: string) => void) =>
     listen<string>('transcription-error', h),
+  /** Pending update version (null = up to date). */
+  onUpdateAvailable: (h: (version: string | null) => void) =>
+    listen<string | null>('update-available', h),
 };
 
 export interface AppUpdateInfo {
