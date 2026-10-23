@@ -477,7 +477,11 @@ fn finish_recording(app: AppHandle) {
         // ── Smart model routing ─────────────────────────────────────────
         // If enabled, keep the selected model when it supports the language;
         // otherwise use the most accurate installed model that does.
-        let effective_model_id = if cfg.smart_model_routing {
+        // Even with routing off, an installed model that handles the
+        // language is used rather than failing with the selected one.
+        let effective_model_id = if cfg.smart_model_routing
+            || !models::is_model_compatible_with_language(&cfg.active_model_id, lang_code)
+        {
             models::best_model_for_language(&state.app_data_dir, &cfg.active_model_id, lang_code)
                 .map(|id| id.to_string())
                 .unwrap_or_else(|| cfg.active_model_id.clone())

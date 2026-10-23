@@ -31,7 +31,7 @@ export function Sidebar({
   theme: Theme;
   setTheme: (t: Theme) => void;
 }) {
-  const [version, setVersion] = useState('0.3.23');
+  const [version, setVersion] = useState('0.3.24');
   // Downloadable update handle (resolved from the updater when one is pending).
   const [updateInfo, setUpdateInfo] = useState<AppUpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
