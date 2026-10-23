@@ -493,12 +493,12 @@ fn finish_recording(app: AppHandle) {
 
         // Check if effective model actually supports the chosen language.
         if !models::is_model_compatible_with_language(&effective_model_id, lang_code) {
-            let model_name = models::catalog_entry(&effective_model_id)
-                .map(|e| e.name)
-                .unwrap_or(&effective_model_id);
+            let entry = models::catalog_entry(&effective_model_id);
+            let model_name = entry.map(|e| e.name).unwrap_or(&effective_model_id);
+            let model_langs = entry.map(|e| e.languages.trim_end_matches(" Only")).unwrap_or("other languages");
             let msg = format!(
-                "'{model_name}' is English-only and does not support {}. Please install a multilingual model (e.g. Whisper Turbo or Whisper Small) from the Models tab.",
-                cfg.language
+                "'{model_name}' supports {model_langs} only, not {lang}. Change Language in Settings, or install a model that supports {lang} (e.g. Parakeet V3 or Whisper Turbo) from the Models tab.",
+                lang = cfg.language
             );
             log::warn!("{msg}");
             let _ = app.emit("transcription-error", msg);
